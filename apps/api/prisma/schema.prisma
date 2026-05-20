@@ -1,0 +1,277 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  super_admin
+  user
+}
+
+enum ProjectStatus {
+  planning
+  active
+  on_hold
+  completed
+  cancelled
+}
+
+enum Priority {
+  critical
+  high
+  medium
+  low
+}
+
+enum TaskStatus {
+  todo
+  in_progress
+  in_review
+  blocked
+  done
+}
+
+enum VisibilityReason {
+  assignee
+  ancestor
+  co_assignee
+}
+
+enum EntityType {
+  task
+  project
+}
+
+enum NotificationType {
+  task_assigned
+  task_status_changed
+  comment_added
+  due_date_approaching
+  task_overdue
+  project_assigned
+  mention
+}
+
+enum DependencyType {
+  finish_to_start
+  start_to_start
+  finish_to_finish
+}
+
+model User {
+  id            String    @id @default(uuid())
+  name          String
+  email         String    @unique
+  passwordHash  String    @map("password_hash")
+  avatarUrl     String?   @map("avatar_url")
+  reportsTo     String?   @map("reports_to")
+  path          String    @default("")
+  depth         Int       @default(0)
+  role          Role      @default(user)
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  manager                 User?               @relation("Hierarchy", fields: [reportsTo], references: [id])
+  reports                 User[]              @relation("Hierarchy")
+  projectsCreated         Project[]           @relation("ProjectCreator")
+  projectAssignments      ProjectAssignment[] @relation("AssignedTo")
+  projectsAssignedBy      ProjectAssignment[] @relation("AssignedBy")
+  projectVisibility       ProjectVisibility[]
+  tasksAssigned           Task[]              @relation("TaskAssignee")
+  tasksCreated            Task[]              @relation("TaskCreator")
+  timeLogs                TimeLog[]
+  comments                Comment[]
+  linksAdded              Link[]
+  notifications           Notification[]
+
+  @@index([path])
+  @@index([reportsTo])
+  @@map("users")
+}
+
+model Project {
+  id          String        @id @default(uuid())
+  title       String
+  description String?
+  createdBy   String        @map("created_by")
+  status      ProjectStatus @default(planning)
+  priority    Priority      @default(medium)
+  startDate   DateTime?     @map("start_date") @db.Date
+  dueDate     DateTime?     @map("due_date") @db.Date
+  tags        String[]
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  creator     User                @relation("ProjectCreator", fields: [createdBy], references: [id])
+  assignments ProjectAssignment[]
+  visibility  ProjectVisibility[]
+  tasks       Task[]
+
+  @@map("projects")
+}
+
+model ProjectAssignment {
+  id         String   @id @default(uuid())
+  projectId  String   @map("project_id")
+  assignedTo String   @map("assigned_to")
+  assignedBy String   @map("assigned_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  project    Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignee   User    @relation("AssignedTo", fields: [assignedTo], references: [id])
+  assigner   User    @relation("AssignedBy", fields: [assignedBy], references: [id])
+
+  @@unique([projectId, assignedTo])
+  @@index([projectId])
+  @@index([assignedTo])
+  @@map("project_assignments")
+}
+
+model ProjectVisibility {
+  id        String           @id @default(uuid())
+  projectId String           @map("project_id")
+  userId    String           @map("user_id")
+  reason    VisibilityReason
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([userId])
+  @@index([projectId])
+  @@map("project_visibility")
+}
+
+model Task {
+  id             String     @id @default(uuid())
+  projectId      String     @map("project_id")
+  parentTaskId   String?    @map("parent_task_id")
+  title          String
+  description    String?
+  assigneeId     String?    @map("assignee_id")
+  createdBy      String     @map("created_by")
+  status         TaskStatus @default(todo)
+  priority       Priority   @default(medium)
+  startDate      DateTime?  @map("start_date") @db.Date
+  dueDate        DateTime?  @map("due_date") @db.Date
+  estimatedHours Decimal?   @map("estimated_hours") @db.Decimal(6, 2)
+  position       Int        @default(0)
+  path           String     @default("")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  project        Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent         Task?            @relation("Subtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  subtasks       Task[]           @relation("Subtasks")
+  assignee       User?            @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  creator        User             @relation("TaskCreator", fields: [createdBy], references: [id])
+  timeLogs       TimeLog[]
+  dependsOn      TaskDependency[] @relation("DependentTask")
+  dependedOnBy   TaskDependency[] @relation("DependencyTarget")
+
+  @@index([projectId])
+  @@index([assigneeId])
+  @@index([parentTaskId])
+  @@index([status])
+  @@map("tasks")
+}
+
+model TaskDependency {
+  id          String         @id @default(uuid())
+  taskId      String         @map("task_id")
+  dependsOn   String         @map("depends_on")
+  type        DependencyType @default(finish_to_start)
+
+  task        Task @relation("DependentTask", fields: [taskId], references: [id], onDelete: Cascade)
+  dependency  Task @relation("DependencyTarget", fields: [dependsOn], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, dependsOn])
+  @@map("task_dependencies")
+}
+
+model TimeLog {
+  id        String   @id @default(uuid())
+  taskId    String   @map("task_id")
+  userId    String   @map("user_id")
+  date      DateTime @db.Date
+  hours     Decimal  @db.Decimal(5, 2)
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task      Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User @relation(fields: [userId], references: [id])
+
+  @@index([taskId])
+  @@index([userId, date])
+  @@map("time_logs")
+}
+
+model Comment {
+  id         String     @id @default(uuid())
+  entityType EntityType @map("entity_type")
+  entityId   String     @map("entity_id")
+  authorId   String     @map("author_id")
+  body       Json
+  parentId   String?    @map("parent_id")
+  isEdited   Boolean    @default(false) @map("is_edited")
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+
+  author    User      @relation(fields: [authorId], references: [id])
+  parent    Comment?  @relation("CommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Comment[] @relation("CommentThread")
+
+  @@index([entityType, entityId])
+  @@map("comments")
+}
+
+model Link {
+  id         String     @id @default(uuid())
+  entityType EntityType @map("entity_type")
+  entityId   String     @map("entity_id")
+  label      String?
+  url        String
+  addedBy    String     @map("added_by")
+  createdAt  DateTime   @default(now()) @map("created_at")
+
+  user       User @relation(fields: [addedBy], references: [id])
+
+  @@index([entityType, entityId])
+  @@map("links")
+}
+
+model Notification {
+  id          String           @id @default(uuid())
+  recipientId String           @map("recipient_id")
+  type        NotificationType
+  entityType  EntityType?      @map("entity_type")
+  entityId    String?          @map("entity_id")
+  message     String
+  isRead      Boolean          @default(false) @map("is_read")
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  recipient   User @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId, isRead])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?  @map("actor_id")
+  action     String
+  entityType String?  @map("entity_type")
+  entityId   String?  @map("entity_id")
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([actorId])
+  @@index([createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
