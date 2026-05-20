@@ -93,9 +93,25 @@ function WorkloadBreakdownModal({ row, onClose }: { row: WorkloadRow; onClose: (
   );
 }
 
+type RangePreset = 'week' | 'month' | 'custom';
+
+function startOfWeek(): string {
+  const d = new Date();
+  const day = d.getDay() || 7;
+  d.setDate(d.getDate() - day + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 export default function WorkloadReportPage() {
+  const [preset, setPreset] = useState<RangePreset>('month');
   const [from, setFrom] = useState(daysAgo(30));
   const [to, setTo] = useState(today());
+
+  const applyPreset = (p: RangePreset) => {
+    setPreset(p);
+    if (p === 'week') { setFrom(startOfWeek()); setTo(today()); }
+    if (p === 'month') { setFrom(daysAgo(30)); setTo(today()); }
+  };
   const { data = [], isLoading } = useWorkload(from, to);
   const [selectedRow, setSelectedRow] = useState<WorkloadRow | null>(null);
 
@@ -111,16 +127,28 @@ export default function WorkloadReportPage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="text-2xl font-bold text-text">Workload</h1>
         <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2 text-sm text-text2">
-            <label>From</label>
-            <input type="date" value={from} onChange={e => setFrom(e.target.value)}
-              className="rounded border border-c-border bg-surface2 px-2 py-1 text-text text-sm focus:outline-none focus:border-accent" />
+          <div className="flex items-center rounded-md border border-c-border overflow-hidden">
+            {([['week', 'This Week'], ['month', 'This Month'], ['custom', 'Custom']] as [RangePreset, string][]).map(([p, label]) => (
+              <button key={p} onClick={() => applyPreset(p)}
+                className={`px-3 py-1.5 text-xs transition-colors ${preset === p ? 'bg-accent text-white' : 'text-text2 hover:text-text hover:bg-surface2'}`}>
+                {label}
+              </button>
+            ))}
           </div>
-          <div className="flex items-center gap-2 text-sm text-text2">
-            <label>To</label>
-            <input type="date" value={to} onChange={e => setTo(e.target.value)}
-              className="rounded border border-c-border bg-surface2 px-2 py-1 text-text text-sm focus:outline-none focus:border-accent" />
-          </div>
+          {preset === 'custom' && (
+            <>
+              <div className="flex items-center gap-2 text-sm text-text2">
+                <label>From</label>
+                <input type="date" value={from} onChange={e => setFrom(e.target.value)}
+                  className="rounded border border-c-border bg-surface2 px-2 py-1 text-text text-sm focus:outline-none focus:border-accent" />
+              </div>
+              <div className="flex items-center gap-2 text-sm text-text2">
+                <label>To</label>
+                <input type="date" value={to} onChange={e => setTo(e.target.value)}
+                  className="rounded border border-c-border bg-surface2 px-2 py-1 text-text text-sm focus:outline-none focus:border-accent" />
+              </div>
+            </>
+          )}
           <ExportButtons from={from} to={to} />
         </div>
       </div>

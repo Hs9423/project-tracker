@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useProjects, useWorkload } from '@/hooks/useProjects';
-import { useMyTasks } from '@/hooks/useTasks';
+import { useMyTasks, useAllVisibleTasks } from '@/hooks/useTasks';
 import { useAuthStore } from '@/store/authStore';
 import { Topbar } from '@/components/layout/Topbar';
 import { Card } from '@/components/ui/card';
@@ -9,16 +9,16 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Spinner } from '@/components/ui/spinner';
 import { UserAvatar } from '@/components/ui/avatar';
-import { statusVariant, projectStatusVariant, priorityDot } from '@/lib/statusHelpers';
+import { statusVariant, projectStatusVariant, priorityDot, STATUS_LABELS, TASK_STATUSES } from '@/lib/statusHelpers';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
 import {
   FolderOpen, CheckSquare, AlertCircle, Users,
-  Clock, TrendingUp, Calendar,
+  Clock, TrendingUp, Calendar, LayoutGrid,
 } from 'lucide-react';
 import Link from 'next/link';
-import type { Project, Task, WorkloadEntry } from '@/types/api';
+import type { Project, Task, WorkloadEntry, TaskStatus } from '@/types/api';
 
 function StatCard({ icon: Icon, label, value, sub, color = 'text-accent' }: {
   icon: React.ElementType; label: string; value: string | number; sub?: string; color?: string;
@@ -198,9 +198,81 @@ function TaskRow({ task }: { task: Task }) {
   );
 }
 
+type KanbanSwimMode = 'status' | 'project';
+
+function DashboardKanban() {
+  const { data: tasks = [], isLoading } = useAllVisibleTasks();
+  const [mode, setMode] = useState<KanbanSwimMode>('status');
+
+  if (isLoading) return <div className="flex justify-center py-8"><Spinner /></div>;
+  if (tasks.length === 0) return <p className="text-sm text-text2 py-4">No tasks visible.</p>;
+
+  let lanes: { key: string; label: string; tasks: Task[] }[] = [];
+  if (mode === 'status') {
+    lanes = TASK_STATUSES.map(s => ({
+      key: s, label: STATUS_LABELS[s],
+      tasks: tasks.filter(t => t.status === s),
+    })).filter(l => l.tasks.length > 0);
+  } else {
+    const projectIds = [...new Set(tasks.map(t => t.projectId))];
+    lanes = projectIds.map(pid => ({
+      key: pid,
+      label: pid.slice(0, 8) + '…',
+      tasks: tasks.filter(t => t.projectId === pid),
+    }));
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-text2">Group by:</span>
+        {(['status', 'project'] as KanbanSwimMode[]).map(m => (
+          <button key={m} onClick={() => setMode(m)}
+            className={`rounded px-2 py-1 text-xs font-medium capitalize transition-colors ${mode === m ? 'bg-accent text-white' : 'bg-surface2 text-text2 hover:text-text border border-c-border'}`}>
+            {m}
+          </button>
+        ))}
+        <span className="text-xs text-text2 ml-2">{tasks.length} tasks across all visible projects</span>
+      </div>
+      <div className="flex gap-3 overflow-x-auto pb-4">
+        {lanes.map(lane => (
+          <div key={lane.key} className="shrink-0 w-52">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-medium text-text truncate max-w-[160px]" title={lane.label}>{lane.label}</span>
+              <span className="text-xs text-text2 ml-1 shrink-0">{lane.tasks.length}</span>
+            </div>
+            <div className="space-y-2 min-h-[120px] rounded-lg border border-dashed border-c-border p-2">
+              {lane.tasks.slice(0, 20).map(t => (
+                <Link key={t.id} href={`/projects/${t.projectId}`}>
+                  <div className="rounded-md border border-c-border bg-surface p-2 hover:border-accent/50 transition-colors cursor-pointer">
+                    <div className="flex items-start justify-between gap-1 mb-1">
+                      <p className="text-xs text-text leading-snug line-clamp-2">{t.title}</p>
+                      <span className={`h-1.5 w-1.5 rounded-full shrink-0 mt-1 ${priorityDot(t.priority)}`} />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      {t.assignee
+                        ? <UserAvatar name={t.assignee.name} avatarUrl={t.assignee.avatarUrl ?? null} className="h-4 w-4 text-[8px]" />
+                        : <span />}
+                      {t.dueDate && <span className="text-[10px] text-text2">{new Date(t.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>}
+                    </div>
+                  </div>
+                </Link>
+              ))}
+              {lane.tasks.length > 20 && (
+                <p className="text-[10px] text-text2 text-center py-1">+{lane.tasks.length - 20} more</p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const { user } = useAuthStore();
   const [tab, setTab] = useState('team');
+  const [teamView, setTeamView] = useState<'overview' | 'kanban'>('overview');
 
   const { data: projects = [], isLoading: projLoading } = useProjects({ status: 'active' });
   const { data: myTasks = [], isLoading: tasksLoading } = useMyTasks();
@@ -244,44 +316,70 @@ export default function DashboardPage() {
                   <StatCard icon={Users} label="Team Members" value={workload.length} sub="visible to you" color="text-amber" />
                 </div>
 
-                {/* Projects grid */}
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <h2 className="text-sm font-semibold text-text">Active Projects</h2>
-                    <Link href="/projects" className="text-xs text-accent hover:underline">View all</Link>
-                  </div>
-                  {projects.length === 0 ? (
-                    <p className="text-sm text-text2">No active projects.</p>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                      {projects.slice(0, 9).map(p => <ProjectCard key={p.id} project={p} />)}
+                {/* View toggle */}
+                <div className="flex items-center rounded-md border border-c-border overflow-hidden w-fit">
+                  <button onClick={() => setTeamView('overview')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors ${teamView === 'overview' ? 'bg-accent text-white' : 'text-text2 hover:text-text hover:bg-surface2'}`}>
+                    <FolderOpen className="h-3.5 w-3.5" />Overview
+                  </button>
+                  <button onClick={() => setTeamView('kanban')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors ${teamView === 'kanban' ? 'bg-accent text-white' : 'text-text2 hover:text-text hover:bg-surface2'}`}>
+                    <LayoutGrid className="h-3.5 w-3.5" />Kanban
+                  </button>
+                </div>
+
+                {teamView === 'overview' && (
+                  <>
+                    {/* Projects grid */}
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <h2 className="text-sm font-semibold text-text">Active Projects</h2>
+                        <Link href="/projects" className="text-xs text-accent hover:underline">View all</Link>
+                      </div>
+                      {projects.length === 0 ? (
+                        <p className="text-sm text-text2">No active projects.</p>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                          {projects.slice(0, 9).map(p => <ProjectCard key={p.id} project={p} />)}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Workload chart */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Workload chart */}
+                      <Card className="p-4">
+                        <h2 className="text-sm font-semibold text-text mb-4 flex items-center gap-2">
+                          <TrendingUp className="h-4 w-4 text-accent" />
+                          Team Workload
+                        </h2>
+                        {workload.length === 0 ? (
+                          <p className="text-sm text-text2 py-8 text-center">Select a project to view workload.</p>
+                        ) : (
+                          <WorkloadChart data={workload} />
+                        )}
+                      </Card>
+
+                      {/* Mini Gantt */}
+                      <Card className="p-4">
+                        <h2 className="text-sm font-semibold text-text mb-4 flex items-center gap-2">
+                          <Calendar className="h-4 w-4 text-accent" />
+                          Project Timeline
+                        </h2>
+                        <MiniGantt projects={projects} />
+                      </Card>
+                    </div>
+                  </>
+                )}
+
+                {teamView === 'kanban' && (
                   <Card className="p-4">
                     <h2 className="text-sm font-semibold text-text mb-4 flex items-center gap-2">
-                      <TrendingUp className="h-4 w-4 text-accent" />
-                      Team Workload
+                      <LayoutGrid className="h-4 w-4 text-accent" />
+                      Team Kanban
                     </h2>
-                    {workload.length === 0 ? (
-                      <p className="text-sm text-text2 py-8 text-center">Select a project to view workload.</p>
-                    ) : (
-                      <WorkloadChart data={workload} />
-                    )}
+                    <DashboardKanban />
                   </Card>
-
-                  {/* Mini Gantt */}
-                  <Card className="p-4">
-                    <h2 className="text-sm font-semibold text-text mb-4 flex items-center gap-2">
-                      <Calendar className="h-4 w-4 text-accent" />
-                      Project Timeline
-                    </h2>
-                    <MiniGantt projects={projects} />
-                  </Card>
-                </div>
+                )}
               </div>
             )}
           </TabsContent>

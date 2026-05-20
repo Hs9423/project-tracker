@@ -87,3 +87,18 @@ export function useDeleteDependency(taskId: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['task', taskId] }),
   });
 }
+
+export function useTaskActivity(taskId: string) {
+  return useQuery<Array<{ type: 'comment' | 'audit'; createdAt: string; data: Record<string, unknown> }>>({
+    queryKey: ['task-activity', taskId],
+    queryFn: () => api.get(`/tasks/${taskId}/activity`).then(r => r.data),
+    enabled: !!taskId,
+  });
+}
+
+export function useAllVisibleTasks() {
+  return useQuery<import('@/types/api').Task[]>({
+    queryKey: ['tasks', 'all-visible'],
+    queryFn: () => api.get('/tasks/visible').then(r => r.data),
+  });
+}

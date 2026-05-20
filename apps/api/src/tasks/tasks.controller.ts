@@ -47,6 +47,12 @@ export class TasksController {
     return this.tasksService.getMyTasks(user.sub);
   }
 
+  // GET /tasks/visible — all tasks from user's visible projects (dashboard kanban)
+  @Get('tasks/visible')
+  getAllVisibleTasks(@CurrentUser() user: JwtPayload) {
+    return this.tasksService.getAllVisibleTasks(user.sub);
+  }
+
   // GET /tasks/:id — access check done in service
   @Get('tasks/:id')
   getTask(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: JwtPayload) {

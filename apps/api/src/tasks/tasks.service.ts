@@ -363,6 +363,41 @@ export class TasksService {
     return activities.slice(0, 50);
   }
 
+  // ─── All visible tasks (cross-project, for dashboard kanban) ─────────────
+
+  async getAllVisibleTasks(userId: string) {
+    const visible = await this.prisma.projectVisibility.findMany({
+      where: { userId },
+      select: { projectId: true },
+    });
+    const projectIds = visible.map((v) => v.projectId);
+    if (projectIds.length === 0) return [];
+
+    const tasks = await this.prisma.task.findMany({
+      where: { projectId: { in: projectIds }, parentTaskId: null, deletedAt: null },
+      include: {
+        assignee: { select: ASSIGNEE_SELECT },
+        _count: { select: { subtasks: true } },
+      },
+      orderBy: [{ status: 'asc' }, { dueDate: 'asc' }],
+      take: 300,
+    });
+
+    const taskIds = tasks.map((t) => t.id);
+    const timeStats = await this.prisma.timeLog.groupBy({
+      by: ['taskId'],
+      where: { taskId: { in: taskIds } },
+      _sum: { hours: true },
+    });
+    const hoursMap = new Map(timeStats.map((s) => [s.taskId, Number(s._sum.hours ?? 0)]));
+
+    return tasks.map((t) => ({
+      ...t,
+      timeLogged: hoursMap.get(t.id) ?? 0,
+      subtaskCount: t._count.subtasks,
+    }));
+  }
+
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
   async checkAccess(taskId: string, userId: string): Promise<Task> {

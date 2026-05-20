@@ -78,6 +78,7 @@ export interface Task {
   timeLogged?: number;
   linksCount?: number;
   commentsCount?: number;
+  subtaskCount?: number;
   _count?: { subtasks: number; dependsOn: number };
   dependsOn?: TaskDependencyRow[];
   dependedOnBy?: TaskDependencyRow[];

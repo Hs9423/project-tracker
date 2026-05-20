@@ -9,7 +9,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { statusVariant, priorityDot, TASK_STATUSES, STATUS_LABELS } from '@/lib/statusHelpers';
-import { CheckSquare, Clock, AlertTriangle, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { CheckSquare, Clock, AlertTriangle, ChevronLeft, ChevronRight, Calendar, BarChart2 } from 'lucide-react';
 import Link from 'next/link';
 import type { Task, TaskStatus } from '@/types/api';
 
@@ -210,8 +210,115 @@ function UpcomingDeadlines({ tasks }: { tasks: Task[] }) {
   );
 }
 
+const STATUS_COLORS: Record<string, string> = {
+  todo: '#64748b', in_progress: '#4f8ef7', in_review: '#a78bfa',
+  blocked: '#f87171', done: '#34d399',
+};
+
+type PersonalGanttZoom = 'week' | 'month' | 'quarter';
+
+function PersonalGanttView({ tasks }: { tasks: Task[] }) {
+  const [zoom, setZoom] = useState<PersonalGanttZoom>('month');
+  const withDates = tasks.filter(t => t.startDate && t.dueDate);
+
+  if (withDates.length === 0) {
+    return (
+      <Card className="p-8 text-center">
+        <BarChart2 className="h-8 w-8 text-text2 mx-auto mb-2" />
+        <p className="text-sm text-text2">No tasks with both start and due dates.</p>
+      </Card>
+    );
+  }
+
+  const dates = withDates.flatMap(t => [new Date(t.startDate!), new Date(t.dueDate!)]);
+  const minTask = new Date(Math.min(...dates.map(d => d.getTime())));
+  const maxTask = new Date(Math.max(...dates.map(d => d.getTime())));
+
+  const zoomPadMs = zoom === 'week' ? 2 * 86400000 : zoom === 'month' ? 7 * 86400000 : 14 * 86400000;
+  const paddedMin = new Date(minTask.getTime() - zoomPadMs);
+  const paddedMax = new Date(maxTask.getTime() + zoomPadMs);
+  const span = paddedMax.getTime() - paddedMin.getTime();
+
+  const buildTicks = () => {
+    const ticks: { label: string; pct: number }[] = [];
+    const cur = new Date(paddedMin); cur.setHours(0, 0, 0, 0);
+    while (cur.getTime() < paddedMax.getTime()) {
+      const pct = ((cur.getTime() - paddedMin.getTime()) / span) * 100;
+      if (zoom === 'week') {
+        ticks.push({ label: cur.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), pct });
+        cur.setDate(cur.getDate() + 1);
+      } else if (zoom === 'month') {
+        ticks.push({ label: cur.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), pct });
+        cur.setDate(cur.getDate() + 7);
+      } else {
+        ticks.push({ label: cur.toLocaleDateString(undefined, { month: 'short', year: '2-digit' }), pct });
+        cur.setMonth(cur.getMonth() + 1);
+      }
+    }
+    return ticks.filter(t => t.pct >= 0 && t.pct <= 100);
+  };
+  const ticks = buildTicks();
+  const todayPct = ((Date.now() - paddedMin.getTime()) / span) * 100;
+
+  return (
+    <Card className="p-4">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-sm font-semibold text-text">My Timeline</h2>
+        <div className="flex items-center rounded-md border border-c-border overflow-hidden">
+          {(['week', 'month', 'quarter'] as PersonalGanttZoom[]).map(z => (
+            <button key={z} onClick={() => setZoom(z)}
+              className={`px-2.5 py-1 text-xs capitalize transition-colors ${zoom === z ? 'bg-accent text-white' : 'text-text2 hover:text-text hover:bg-surface2'}`}>
+              {z}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Ruler */}
+      <div className="relative h-5 mb-1 ml-44">
+        {ticks.map((tick, i) => (
+          <span key={i} className="absolute text-[9px] text-text2 -translate-x-1/2" style={{ left: `${tick.pct}%` }}>
+            {tick.label}
+          </span>
+        ))}
+      </div>
+
+      <div className="space-y-1.5">
+        {withDates.map(t => {
+          const left = (new Date(t.startDate!).getTime() - paddedMin.getTime()) / span * 100;
+          const width = Math.max((new Date(t.dueDate!).getTime() - new Date(t.startDate!).getTime()) / span * 100, 1);
+          const color = STATUS_COLORS[t.status] ?? '#4f8ef7';
+          return (
+            <div key={t.id} className="flex items-center gap-3">
+              <div className="w-40 shrink-0 truncate text-xs text-text2" title={t.title}>{t.title}</div>
+              <div className="flex-1 h-5 relative rounded bg-surface2">
+                {todayPct >= 0 && todayPct <= 100 && (
+                  <div className="absolute top-0 bottom-0 w-px bg-amber/70 z-10" style={{ left: `${todayPct}%` }} />
+                )}
+                <div className="absolute h-full rounded text-[10px] text-white flex items-center px-1.5 overflow-hidden whitespace-nowrap"
+                  style={{ left: `${left}%`, width: `${width}%`, background: color }}>
+                  {width > 8 ? t.title : ''}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex items-center gap-3 mt-3 text-[10px] text-text2">
+        {Object.entries(STATUS_COLORS).map(([s, c]) => (
+          <span key={s} className="flex items-center gap-1">
+            <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: c }} />
+            {STATUS_LABELS[s as Task['status']] ?? s}
+          </span>
+        ))}
+        <span className="flex items-center gap-1 ml-1"><span className="inline-block w-px h-3 bg-amber/70" /> today</span>
+      </div>
+    </Card>
+  );
+}
+
 export default function MyWorkPage() {
-  const [view, setView] = useState<'list' | 'kanban' | 'timesheet'>('list');
+  const [view, setView] = useState<'list' | 'kanban' | 'gantt' | 'timesheet'>('list');
   const [week, setWeek] = useState(getISOWeek(new Date()));
 
   const { data: tasks = [], isLoading } = useMyTasks();
@@ -243,7 +350,7 @@ export default function MyWorkPage() {
         title="My Work"
         actions={
           <div className="flex items-center rounded-md border border-c-border overflow-hidden">
-            {(['list', 'kanban', 'timesheet'] as const).map(v => (
+            {(['list', 'kanban', 'gantt', 'timesheet'] as const).map(v => (
               <button
                 key={v}
                 onClick={() => setView(v)}
@@ -306,6 +413,8 @@ export default function MyWorkPage() {
                 ))}
               </div>
             )}
+
+            {view === 'gantt' && <PersonalGanttView tasks={tasks} />}
 
             {view === 'timesheet' && (
               <Card className="p-4">
