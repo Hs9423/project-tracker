@@ -25,9 +25,11 @@ RUN apk add --no-cache \
   freetype \
   harfbuzz \
   ca-certificates \
-  ttf-freefont
+  ttf-freefont \
+  openssl
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PRISMA_CLI_BINARY_TARGETS=linux-musl-openssl-3.0.x
 # Install prisma CLI globally so migrations can run at startup
 RUN npm install -g prisma@5.22.0
 COPY --from=builder /app/apps/api/dist ./dist
