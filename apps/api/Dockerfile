@@ -13,6 +13,8 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 RUN npm install -g pnpm
 COPY . .
 RUN pnpm install
+# Generate Prisma client so all DB types are available before nest build
+RUN cd apps/api && npx prisma generate
 RUN pnpm --filter @project-tracker/api build
 
 FROM node:20-alpine
