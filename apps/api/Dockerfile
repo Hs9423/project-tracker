@@ -13,6 +13,8 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 RUN npm install -g pnpm
 COPY . .
 RUN pnpm install
+# Build shared package so its dist/ is available for the API build
+RUN pnpm --filter @project-tracker/shared build
 # Generate Prisma client so all DB types are available before nest build
 RUN cd apps/api && node_modules/.bin/prisma generate
 RUN pnpm --filter @project-tracker/api build
@@ -36,6 +38,8 @@ COPY --from=builder /app/apps/api/dist ./dist
 COPY --from=builder /app/apps/api/package.json .
 COPY --from=builder /app/apps/api/prisma ./prisma
 COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages/shared/dist ./node_modules/@project-tracker/shared/dist
+COPY --from=builder /app/packages/shared/package.json ./node_modules/@project-tracker/shared/package.json
 RUN mkdir -p exports
 EXPOSE 3001
 CMD ["sh", "-c", "prisma migrate deploy && node dist/src/main"]
