@@ -1,25 +1,35 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
-
+# Puppeteer dependencies for PDF export
+RUN apk add --no-cache \
+  chromium \
+  nss \
+  freetype \
+  harfbuzz \
+  ca-certificates \
+  ttf-freefont
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 RUN npm install -g pnpm
-
-COPY package.json ./
-RUN pnpm install
-
 COPY . .
-RUN pnpm build
-RUN pnpm prisma:generate
+RUN pnpm install
+RUN pnpm --filter @project-tracker/api build
 
-FROM node:20-alpine AS runner
+FROM node:20-alpine
 WORKDIR /app
-
-RUN npm install -g pnpm
-
-COPY --from=builder /app/dist ./dist
+RUN apk add --no-cache \
+  chromium \
+  nss \
+  freetype \
+  harfbuzz \
+  ca-certificates \
+  ttf-freefont
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+COPY --from=builder /app/apps/api/dist ./dist
+COPY --from=builder /app/apps/api/package.json .
+COPY --from=builder /app/apps/api/prisma ./prisma
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/prisma ./prisma
-COPY package.json ./
-
+RUN mkdir -p exports
 EXPOSE 3001
-
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]

@@ -203,3 +203,65 @@ export interface PaginatedResponse<T> {
   data: T[];
   meta: { total: number; page: number; limit: number; pages: number };
 }
+
+// ─── Report types ─────────────────────────────────────────────────────────────
+
+export interface ProjectReport {
+  progressPercent: number;
+  tasksByStatus: Record<string, number>;
+  overdueCount: number;
+  totalEstimatedHours: number;
+  totalLoggedHours: number;
+  memberBreakdown: {
+    id: string;
+    name: string;
+    avatarUrl: string | null;
+    tasksAssigned: number;
+    tasksDone: number;
+    hoursLogged: number;
+  }[];
+}
+
+export interface TeamProductivityRow {
+  user: UserPublic;
+  tasksCompleted: number;
+  hoursLogged: number;
+  overdueCount: number;
+  avgCompletionTimeDays: number;
+}
+
+export interface TimeTrackingReport {
+  grouped: {
+    user: UserPublic;
+    totalHours: number;
+    projects: {
+      project: { id: string; title: string };
+      totalHours: number;
+      logs: {
+        id: string;
+        date: string;
+        hours: number;
+        note: string | null;
+        task: { id: string; title: string };
+      }[];
+    }[];
+  }[];
+  summary: { totalHours: number; avgHoursPerDay: number; totalEntries: number };
+}
+
+export interface WorkloadRow {
+  user: UserPublic;
+  taskCount: number;
+  estimatedHours: number;
+  loggedHours: number;
+  overdueCount: number;
+  loadPercent: number;
+}
+
+export type ReportType = 'project' | 'team-productivity' | 'time-tracking' | 'workload';
+export type ExportFormat = 'pdf' | 'csv';
+
+export interface ExportStatus {
+  status: 'pending' | 'ready' | 'failed';
+  downloadUrl?: string;
+}

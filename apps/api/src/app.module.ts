@@ -12,6 +12,7 @@ import { TimeLogsModule } from './time-logs/time-logs.module';
 import { LinksModule } from './links/links.module';
 import { CommentsModule } from './comments/comments.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { ReportsModule } from './reports/reports.module';
 import databaseConfig from './config/database.config';
 import jwtConfig from './config/jwt.config';
 import mailConfig from './config/mail.config';
@@ -43,6 +44,7 @@ import mailConfig from './config/mail.config';
     LinksModule,
     CommentsModule,
     NotificationsModule,
+    ReportsModule,
   ],
 })
 export class AppModule {}
