@@ -2,10 +2,12 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
-import { EntityType, Prisma } from '@prisma/client';
+import { EntityType, NotificationType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { VisibilityService } from '../projects/visibility.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { UpdateCommentDto } from './dto/update-comment.dto';
 
@@ -16,6 +18,7 @@ export class CommentsService {
   constructor(
     private prisma: PrismaService,
     private visibility: VisibilityService,
+    @Optional() private notifications: NotificationsService,
   ) {}
 
   async create(dto: CreateCommentDto, authorId: string) {
@@ -34,7 +37,79 @@ export class CommentsService {
 
     const mentionedUserIds = this.extractMentions(dto.body);
 
+    if (this.notifications) {
+      await this.notifyOnComment(comment, authorId, mentionedUserIds);
+    }
+
     return { comment, mentionedUserIds };
+  }
+
+  private async notifyOnComment(
+    comment: { id: string; entityType: EntityType; entityId: string },
+    authorId: string,
+    mentionedUserIds: string[],
+  ) {
+    const notified = new Set<string>([authorId]);
+
+    // Find entity owner
+    let ownerId: string | null = null;
+    if (comment.entityType === EntityType.project) {
+      const project = await this.prisma.project.findUnique({
+        where: { id: comment.entityId },
+        select: { createdBy: true },
+      });
+      ownerId = project?.createdBy ?? null;
+    } else {
+      const task = await this.prisma.task.findUnique({
+        where: { id: comment.entityId },
+        select: { createdBy: true },
+      });
+      ownerId = task?.createdBy ?? null;
+    }
+
+    if (ownerId && !notified.has(ownerId)) {
+      notified.add(ownerId);
+      await this.notifications!.createAndEmit(
+        ownerId,
+        NotificationType.comment_added,
+        comment.entityType,
+        comment.entityId,
+        'New comment on your item',
+      );
+    }
+
+    // Notify previous commenters on same entity
+    const prevCommenters = await this.prisma.comment.findMany({
+      where: { entityType: comment.entityType, entityId: comment.entityId, id: { not: comment.id } },
+      select: { authorId: true },
+      distinct: ['authorId'],
+    });
+    for (const { authorId: prevAuthor } of prevCommenters) {
+      if (!notified.has(prevAuthor)) {
+        notified.add(prevAuthor);
+        await this.notifications!.createAndEmit(
+          prevAuthor,
+          NotificationType.comment_added,
+          comment.entityType,
+          comment.entityId,
+          'New comment on a thread you participated in',
+        );
+      }
+    }
+
+    // Notify mentioned users
+    for (const mentionedId of mentionedUserIds) {
+      if (!notified.has(mentionedId)) {
+        notified.add(mentionedId);
+        await this.notifications!.createAndEmit(
+          mentionedId,
+          NotificationType.mention,
+          comment.entityType,
+          comment.entityId,
+          'You were mentioned in a comment',
+        );
+      }
+    }
   }
 
   async listForEntity(entityType: EntityType, entityId: string, userId: string) {

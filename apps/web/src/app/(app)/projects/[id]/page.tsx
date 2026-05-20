@@ -7,6 +7,7 @@ import {
 import { useTasks, useCreateTask, useCreateSubtask, useUpdateTask, useDeleteTask } from '@/hooks/useTasks';
 import { useLinks, useCreateLink, useDeleteLink } from '@/hooks/useLinks';
 import { useCreateTimeLog } from '@/hooks/useTimeLogs';
+import { CommentThread } from '@/components/comments/CommentThread';
 import { Topbar } from '@/components/layout/Topbar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -686,7 +687,7 @@ function ActivityTab({ projectId }: { projectId: string }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-const TABS = ['overview', 'tasks', 'gantt', 'kanban', 'links', 'time', 'activity'] as const;
+const TABS = ['overview', 'tasks', 'gantt', 'kanban', 'links', 'time', 'comments', 'activity'] as const;
 type Tab = typeof TABS[number];
 
 export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -738,6 +739,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
         {tab === 'kanban' && <KanbanTab projectId={id} />}
         {tab === 'links' && <LinksTab projectId={id} />}
         {tab === 'time' && <TimeTab projectId={id} />}
+        {tab === 'comments' && <CommentThread entityType="project" entityId={id} projectId={id} />}
         {tab === 'activity' && <ActivityTab projectId={id} />}
       </div>
     </div>

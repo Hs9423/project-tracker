@@ -3,11 +3,13 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
-import { Priority, ProjectStatus, TaskStatus } from '@prisma/client';
+import { NotificationType, Priority, ProjectStatus, TaskStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { HierarchyService } from '../users/hierarchy.service';
 import { VisibilityService } from './visibility.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ListProjectsQueryDto } from './dto/list-projects-query.dto';
@@ -20,6 +22,7 @@ export class ProjectsService {
     private prisma: PrismaService,
     private hierarchy: HierarchyService,
     private visibility: VisibilityService,
+    @Optional() private notifications: NotificationsService,
   ) {}
 
   // ─── Create ───────────────────────────────────────────────────────────────
@@ -53,6 +56,18 @@ export class ProjectsService {
     });
 
     await this.visibility.computeVisibility(project.id, dto.assignedTo);
+
+    if (this.notifications) {
+      for (const assigneeId of dto.assignedTo.filter((id) => id !== creatorId)) {
+        await this.notifications.createAndEmit(
+          assigneeId,
+          NotificationType.project_assigned,
+          'project',
+          project.id,
+          `You have been assigned to project "${dto.title}"`,
+        );
+      }
+    }
 
     return this.getById(project.id);
   }

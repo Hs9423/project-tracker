@@ -3,10 +3,12 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
-import { DependencyType, Task, TaskStatus } from '@prisma/client';
+import { DependencyType, NotificationType, Task, TaskStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { VisibilityService } from '../projects/visibility.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { CreateDependencyDto } from './dto/create-dependency.dto';
@@ -18,6 +20,7 @@ export class TasksService {
   constructor(
     private prisma: PrismaService,
     private visibility: VisibilityService,
+    @Optional() private notifications: NotificationsService,
   ) {}
 
   // ─── Create root-level task ───────────────────────────────────────────────
@@ -50,6 +53,16 @@ export class TasksService {
       where: { id: task.id },
       data: { path: task.id },
     });
+
+    if (dto.assigneeId && dto.assigneeId !== creatorId && this.notifications) {
+      await this.notifications.createAndEmit(
+        dto.assigneeId,
+        NotificationType.task_assigned,
+        'task',
+        task.id,
+        `You have been assigned the task "${dto.title}"`,
+      );
+    }
 
     return this.getTaskById(task.id, creatorId);
   }
@@ -180,6 +193,28 @@ export class TasksService {
           },
         },
       });
+
+      if (task.createdBy !== userId && this.notifications) {
+        await this.notifications.createAndEmit(
+          task.createdBy,
+          NotificationType.task_status_changed,
+          'task',
+          taskId,
+          `Task "${task.title}" status changed to ${dto.status.replace('_', ' ')}`,
+        );
+      }
+    }
+
+    if (dto.assigneeId !== undefined && dto.assigneeId !== task.assigneeId) {
+      if (dto.assigneeId && dto.assigneeId !== userId && this.notifications) {
+        await this.notifications.createAndEmit(
+          dto.assigneeId,
+          NotificationType.task_assigned,
+          'task',
+          taskId,
+          `You have been assigned the task "${task.title}"`,
+        );
+      }
     }
 
     const updated = await this.prisma.task.update({

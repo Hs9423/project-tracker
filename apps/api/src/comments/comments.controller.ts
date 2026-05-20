@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Optional,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -15,18 +16,28 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtPayload } from '@project-tracker/shared';
 import { CommentsService } from './comments.service';
+import { NotificationsGateway } from '../notifications/notifications.gateway';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { UpdateCommentDto } from './dto/update-comment.dto';
 
 @Controller('comments')
 @UseGuards(JwtAuthGuard)
 export class CommentsController {
-  constructor(private readonly commentsService: CommentsService) {}
+  constructor(
+    private readonly commentsService: CommentsService,
+    @Optional() private readonly gateway: NotificationsGateway,
+  ) {}
 
   // POST /comments
   @Post()
-  create(@Body() dto: CreateCommentDto, @CurrentUser() user: JwtPayload) {
-    return this.commentsService.create(dto, user.sub);
+  async create(@Body() dto: CreateCommentDto, @CurrentUser() user: JwtPayload) {
+    const result = await this.commentsService.create(dto, user.sub);
+    this.gateway?.emitToUser(user.sub, 'comment:new', {
+      entityType: dto.entityType,
+      entityId: dto.entityId,
+      comment: result.comment,
+    });
+    return result;
   }
 
   // GET /comments?entity_type=task&entity_id=uuid
