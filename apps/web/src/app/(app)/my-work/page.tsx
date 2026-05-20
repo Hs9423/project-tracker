@@ -9,7 +9,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { statusVariant, priorityDot, TASK_STATUSES, STATUS_LABELS } from '@/lib/statusHelpers';
-import { CheckSquare, Clock, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { CheckSquare, Clock, AlertTriangle, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 import Link from 'next/link';
 import type { Task, TaskStatus } from '@/types/api';
 
@@ -156,6 +156,60 @@ function TimesheetView({ week }: { week: string }) {
   );
 }
 
+function UpcomingDeadlines({ tasks }: { tasks: Task[] }) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const in14 = new Date(today.getTime() + 14 * 86400000);
+
+  const upcoming = tasks
+    .filter(t => t.dueDate && t.status !== 'done' && new Date(t.dueDate) >= today && new Date(t.dueDate) <= in14)
+    .sort((a, b) => new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime());
+
+  const overdue = tasks.filter(t => t.dueDate && t.status !== 'done' && new Date(t.dueDate) < today);
+
+  if (upcoming.length === 0 && overdue.length === 0) return null;
+
+  const daysUntil = (d: string) => {
+    const diff = new Date(d).setHours(0,0,0,0) - today.getTime();
+    const days = Math.round(diff / 86400000);
+    if (days === 0) return 'Today';
+    if (days === 1) return 'Tomorrow';
+    return `In ${days}d`;
+  };
+
+  const allItems = [
+    ...overdue.map(t => ({ ...t, label: 'Overdue', urgent: true })),
+    ...upcoming.map(t => ({ ...t, label: daysUntil(t.dueDate!), urgent: false })),
+  ];
+
+  return (
+    <Card className="p-4">
+      <h2 className="text-sm font-semibold text-text mb-3 flex items-center gap-2">
+        <Calendar className="h-4 w-4 text-accent" />
+        Upcoming Deadlines
+        <span className="text-xs font-normal text-text2 ml-1">next 14 days</span>
+      </h2>
+      <div className="space-y-2">
+        {allItems.slice(0, 8).map(t => (
+          <div key={t.id} className="flex items-center gap-3">
+            <span className={`text-[10px] font-medium rounded px-1.5 py-0.5 shrink-0 min-w-[52px] text-center ${
+              t.urgent ? 'bg-red/15 text-red' : t.label === 'Today' ? 'bg-amber/15 text-amber' : 'bg-surface2 text-text2'
+            }`}>
+              {t.label}
+            </span>
+            <span className={`text-xs flex-1 truncate ${t.urgent ? 'text-red' : 'text-text'}`}>{t.title}</span>
+            <Link href={`/projects/${t.projectId}`} className="text-[10px] text-accent hover:underline shrink-0 truncate max-w-[100px]">
+              {t.projectId.slice(0, 8)}…
+            </Link>
+          </div>
+        ))}
+      </div>
+      {allItems.length > 8 && (
+        <p className="text-xs text-text2 mt-2">+{allItems.length - 8} more</p>
+      )}
+    </Card>
+  );
+}
+
 export default function MyWorkPage() {
   const [view, setView] = useState<'list' | 'kanban' | 'timesheet'>('list');
   const [week, setWeek] = useState(getISOWeek(new Date()));
@@ -209,11 +263,14 @@ export default function MyWorkPage() {
           <div className="flex justify-center py-12"><Spinner /></div>
         ) : (
           <div className="space-y-6">
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <StatCard icon={CheckSquare} label="My Open Tasks" value={open.length} color="text-accent" />
               <StatCard icon={AlertTriangle} label="Due This Week" value={dueThisWeek} color="text-amber" />
               <StatCard icon={Clock} label="Hours Logged" value={`${hoursTotal}h`} color="text-green" />
             </div>
+
+            {/* Upcoming Deadlines Widget */}
+            <UpcomingDeadlines tasks={tasks} />
 
             {view === 'list' && (
               <Card className="overflow-hidden">

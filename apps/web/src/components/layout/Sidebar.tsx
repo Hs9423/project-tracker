@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, FolderOpen, CheckSquare, Users, BarChart2,
-  Bell, Settings, LogOut, ChevronRight, FileText, Menu, X,
+  Bell, Settings, LogOut, ChevronRight, FileText, Menu, X, ScrollText,
 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -23,6 +23,7 @@ const navItems = [
 const adminItems = [
   { href: '/admin/users', label: 'Users', icon: Users },
   { href: '/admin/org-chart', label: 'Org Chart', icon: BarChart2 },
+  { href: '/admin/audit-logs', label: 'Audit Log', icon: ScrollText },
 ];
 
 export function Sidebar() {

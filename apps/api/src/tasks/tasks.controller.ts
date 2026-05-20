@@ -89,6 +89,12 @@ export class TasksController {
     return this.tasksService.createDependency(taskId, dto, user.sub);
   }
 
+  // GET /tasks/:id/activity
+  @Get('tasks/:id/activity')
+  getTaskActivity(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: JwtPayload) {
+    return this.tasksService.getTaskActivity(id, user.sub);
+  }
+
   // DELETE /tasks/:id/dependencies/:depId
   @Delete('tasks/:id/dependencies/:depId')
   deleteDependency(

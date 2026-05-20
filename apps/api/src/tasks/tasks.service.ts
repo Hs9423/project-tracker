@@ -336,6 +336,33 @@ export class TasksService {
     return { success: true };
   }
 
+  // ─── Activity ─────────────────────────────────────────────────────────────
+
+  async getTaskActivity(taskId: string, userId: string) {
+    await this.checkAccess(taskId, userId);
+
+    const [comments, auditLogs] = await Promise.all([
+      this.prisma.comment.findMany({
+        where: { entityType: 'task', entityId: taskId },
+        include: { author: { select: { id: true, name: true, avatarUrl: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
+      this.prisma.auditLog.findMany({
+        where: { entityType: 'task', entityId: taskId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
+    ]);
+
+    const activities = [
+      ...comments.map((c) => ({ type: 'comment' as const, createdAt: c.createdAt, data: c })),
+      ...auditLogs.map((l) => ({ type: 'audit' as const, createdAt: l.createdAt, data: l })),
+    ];
+    activities.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return activities.slice(0, 50);
+  }
+
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
   async checkAccess(taskId: string, userId: string): Promise<Task> {

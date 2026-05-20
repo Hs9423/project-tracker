@@ -21,6 +21,15 @@ export function useCreateLink() {
   });
 }
 
+export function useUpdateLink(entityType: EntityType, entityId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { url?: string; label?: string } }) =>
+      api.patch(`/links/${id}`, data).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['links', entityType, entityId] }),
+  });
+}
+
 export function useDeleteLink(entityType: EntityType, entityId: string) {
   const qc = useQueryClient();
   return useMutation({

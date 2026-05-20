@@ -5,8 +5,8 @@ import {
   useWorkload, useTimeReport, useActivity, useUpdateProject,
 } from '@/hooks/useProjects';
 import { useTasks, useCreateTask, useCreateSubtask, useUpdateTask, useDeleteTask } from '@/hooks/useTasks';
-import { useLinks, useCreateLink, useDeleteLink } from '@/hooks/useLinks';
-import { useCreateTimeLog } from '@/hooks/useTimeLogs';
+import { useLinks, useCreateLink, useUpdateLink, useDeleteLink } from '@/hooks/useLinks';
+import { useCreateTimeLog, useDeleteTimeLog } from '@/hooks/useTimeLogs';
 import { CommentThread } from '@/components/comments/CommentThread';
 import { Topbar } from '@/components/layout/Topbar';
 import { Button } from '@/components/ui/button';
@@ -24,7 +24,7 @@ import {
 } from '@/lib/statusHelpers';
 import {
   ChevronRight, Plus, ExternalLink, Trash2,
-  Clock, Link2, MessageSquare,
+  Clock, Link2, MessageSquare, Pencil,
 } from 'lucide-react';
 import { TaskTimer } from '@/components/tasks/TaskTimer';
 import type { Task, TaskStatus, Priority, GanttTask } from '@/types/api';
@@ -450,11 +450,50 @@ function computeCriticalPath(tasks: GanttTask[]): Set<string> {
   return critical;
 }
 
+type GanttZoom = 'day' | 'week' | 'month' | 'quarter';
+
+function buildRulerTicks(minDate: Date, span: number, zoom: GanttZoom): { label: string; pct: number }[] {
+  const ticks: { label: string; pct: number }[] = [];
+  const cur = new Date(minDate);
+  cur.setHours(0, 0, 0, 0);
+
+  while (cur.getTime() < minDate.getTime() + span) {
+    const pct = ((cur.getTime() - minDate.getTime()) / span) * 100;
+    if (pct < 0) { advance(); continue; }
+
+    let label = '';
+    if (zoom === 'day') {
+      label = cur.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      cur.setDate(cur.getDate() + 1);
+    } else if (zoom === 'week') {
+      label = cur.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      cur.setDate(cur.getDate() + 7);
+    } else if (zoom === 'month') {
+      label = cur.toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
+      cur.setMonth(cur.getMonth() + 1); cur.setDate(1);
+    } else {
+      const q = Math.floor(cur.getMonth() / 3) + 1;
+      label = `Q${q} ${cur.getFullYear()}`;
+      cur.setMonth(Math.ceil(cur.getMonth() / 3) * 3); cur.setDate(1);
+    }
+    ticks.push({ label, pct });
+    continue;
+    function advance() {
+      if (zoom === 'day') cur.setDate(cur.getDate() + 1);
+      else if (zoom === 'week') cur.setDate(cur.getDate() + 7);
+      else if (zoom === 'month') { cur.setMonth(cur.getMonth() + 1); cur.setDate(1); }
+      else { cur.setMonth(Math.ceil(cur.getMonth() / 3) * 3); cur.setDate(1); }
+    }
+  }
+  return ticks.filter(t => t.pct >= 0 && t.pct <= 100);
+}
+
 function GanttTab({ projectId }: { projectId: string }) {
   const { data: ganttTasks = [], isLoading } = useGantt(projectId);
   const updateTask = useUpdateTask(projectId);
   const [showBaseline, setShowBaseline] = useState(false);
   const [showCritical, setShowCritical] = useState(false);
+  const [zoom, setZoom] = useState<GanttZoom>('week');
 
   if (isLoading) return <div className="flex justify-center py-12"><Spinner /></div>;
 
@@ -464,9 +503,14 @@ function GanttTab({ projectId }: { projectId: string }) {
   const allDates = withDates.flatMap(t => [new Date(t.startDate!), new Date(t.dueDate!)]);
   const minDate = new Date(Math.min(...allDates.map(d => d.getTime())));
   const maxDate = new Date(Math.max(...allDates.map(d => d.getTime())));
-  const span = Math.max(maxDate.getTime() - minDate.getTime(), 86400000);
+  // Pad the span based on zoom for visual breathing room
+  const zoomPadMs: Record<GanttZoom, number> = { day: 86400000, week: 7*86400000, month: 30*86400000, quarter: 90*86400000 };
+  const paddedMin = new Date(minDate.getTime() - zoomPadMs[zoom]);
+  const paddedMax = new Date(maxDate.getTime() + zoomPadMs[zoom]);
+  const span = Math.max(paddedMax.getTime() - paddedMin.getTime(), 86400000);
 
   const criticalSet = showCritical ? computeCriticalPath(withDates) : new Set<string>();
+  const rulerTicks = buildRulerTicks(paddedMin, span, zoom);
 
   const statusColors: Record<string, string> = {
     todo: '#8892aa', in_progress: '#4f8ef7', in_review: '#fbbf24', blocked: '#f87171', done: '#34d399',
@@ -488,11 +532,9 @@ function GanttTab({ projectId }: { projectId: string }) {
     const onMove = (mv: PointerEvent) => {
       const deltaMs = (mv.clientX - startX) * msPerPx;
       const newStart = new Date(new Date(origStart).getTime() + deltaMs);
-      const newDue = new Date(newStart.getTime() + durationMs);
-      // live visual feedback handled by DOM; skip re-render during drag
       (trackEl.querySelector(`[data-task-drag="${taskId}"]`) as HTMLElement | null)?.style.setProperty(
         'left',
-        `${((newStart.getTime() - minDate.getTime()) / span) * 100}%`,
+        `${((newStart.getTime() - paddedMin.getTime()) / span) * 100}%`,
       );
     };
 
@@ -500,7 +542,7 @@ function GanttTab({ projectId }: { projectId: string }) {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
       const deltaMs = (up.clientX - startX) * msPerPx;
-      if (Math.abs(deltaMs) < 86400000 / 2) return; // < 12h — no-op
+      if (Math.abs(deltaMs) < 86400000 / 2) return;
       const newStart = new Date(new Date(origStart).getTime() + deltaMs);
       const newDue = new Date(newStart.getTime() + durationMs);
       updateTask.mutate({
@@ -518,69 +560,103 @@ function GanttTab({ projectId }: { projectId: string }) {
 
   return (
     <Card className="p-4 overflow-x-auto">
-      <div className="flex items-center gap-3 mb-4">
-        <button
-          onClick={() => setShowCritical(c => !c)}
-          className={`rounded px-2.5 py-1 text-xs font-medium transition-colors border ${showCritical ? 'bg-red/10 border-red text-red' : 'border-c-border text-text2 hover:text-text bg-surface2'}`}
-        >
-          Critical Path
-        </button>
-        <button
-          onClick={() => setShowBaseline(b => !b)}
-          className={`rounded px-2.5 py-1 text-xs font-medium transition-colors border ${showBaseline ? 'bg-accent/10 border-accent text-accent' : 'border-c-border text-text2 hover:text-text bg-surface2'}`}
-        >
-          Baseline
-        </button>
+      {/* Controls */}
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        {/* Zoom selector */}
+        <div className="flex items-center rounded-md border border-c-border overflow-hidden">
+          {(['day', 'week', 'month', 'quarter'] as GanttZoom[]).map(z => (
+            <button key={z} onClick={() => setZoom(z)}
+              className={`px-2.5 py-1 text-xs capitalize transition-colors ${zoom === z ? 'bg-accent text-white' : 'text-text2 hover:text-text hover:bg-surface2'}`}>
+              {z}
+            </button>
+          ))}
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => setShowCritical(c => !c)}
+            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors border ${showCritical ? 'bg-red/10 border-red text-red' : 'border-c-border text-text2 hover:text-text bg-surface2'}`}
+          >
+            Critical Path
+          </button>
+          <button
+            onClick={() => setShowBaseline(b => !b)}
+            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors border ${showBaseline ? 'bg-accent/10 border-accent text-accent' : 'border-c-border text-text2 hover:text-text bg-surface2'}`}
+          >
+            Baseline
+          </button>
+        </div>
+      </div>
+
+      <div className="min-w-[700px]">
+        {/* Date ruler */}
+        <div className="flex items-end mb-1 pl-44">
+          <div className="flex-1 relative h-5">
+            {rulerTicks.map((tick, i) => (
+              <span
+                key={i}
+                className="absolute text-[9px] text-text2 whitespace-nowrap"
+                style={{ left: `${tick.pct}%`, transform: 'translateX(-50%)' }}
+              >
+                {tick.label}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Today line marker */}
+        <div className="relative">
+          {/* Rows */}
+          <div className="space-y-2">
+            {withDates.map(t => {
+              const left = (new Date(t.startDate!).getTime() - paddedMin.getTime()) / span * 100;
+              const width = Math.max((new Date(t.dueDate!).getTime() - new Date(t.startDate!).getTime()) / span * 100, 1);
+              const isCritical = criticalSet.has(t.id);
+              const barColor = isCritical ? '#f87171' : (statusColors[t.status] ?? '#4f8ef7');
+
+              const hasBaseline = showBaseline && t.baselineStartDate && t.baselineDueDate;
+              const blLeft = hasBaseline ? (new Date(t.baselineStartDate!).getTime() - paddedMin.getTime()) / span * 100 : 0;
+              const blWidth = hasBaseline ? Math.max((new Date(t.baselineDueDate!).getTime() - new Date(t.baselineStartDate!).getTime()) / span * 100, 1) : 0;
+
+              return (
+                <div key={t.id} className="flex items-center gap-3">
+                  <div className="w-40 shrink-0 truncate text-xs text-text2" title={t.title}>{t.title}</div>
+                  <div className="flex-1 h-6 relative rounded bg-surface2" data-track={t.id}>
+                    {/* Today line */}
+                    {(() => {
+                      const todayPct = (Date.now() - paddedMin.getTime()) / span * 100;
+                      return todayPct >= 0 && todayPct <= 100
+                        ? <div className="absolute top-0 bottom-0 w-px bg-amber/70 z-10" style={{ left: `${todayPct}%` }} />
+                        : null;
+                    })()}
+                    {hasBaseline && (
+                      <div className="absolute h-1 rounded top-1/2 -translate-y-1/2 opacity-60"
+                        style={{ left: `${blLeft}%`, width: `${blWidth}%`, background: '#818cf8' }} />
+                    )}
+                    <div
+                      data-task-drag={t.id}
+                      className={`absolute h-full rounded text-[10px] text-white flex items-center px-1.5 overflow-hidden whitespace-nowrap select-none cursor-grab active:cursor-grabbing ${isCritical ? 'ring-1 ring-red/70' : ''}`}
+                      style={{ left: `${left}%`, width: `${width}%`, background: barColor }}
+                      onPointerDown={e => {
+                        const track = e.currentTarget.closest('[data-track]') as HTMLDivElement | null;
+                        if (track) handleBarDrag(t.id, t.startDate!, t.dueDate!, e, track);
+                      }}
+                    >
+                      {width > 8 ? t.title : ''}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
         {showBaseline && (
-          <div className="flex items-center gap-3 text-xs text-text2">
-            <span className="flex items-center gap-1"><span className="inline-block w-4 h-1.5 rounded bg-accent/40" /> current</span>
-            <span className="flex items-center gap-1"><span className="inline-block w-4 h-0.5 rounded bg-accent/80" /> baseline</span>
+          <div className="flex items-center gap-4 mt-3 text-xs text-text2">
+            <span className="flex items-center gap-1"><span className="inline-block w-4 h-2 rounded" style={{ background: '#4f8ef7' }} /> current</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-4 h-1 rounded bg-indigo-400/60" /> baseline</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-px h-3 bg-amber/70" /> today</span>
           </div>
         )}
-      </div>
-      <div className="space-y-2 min-w-[600px]">
-        {withDates.map(t => {
-          const left = (new Date(t.startDate!).getTime() - minDate.getTime()) / span * 100;
-          const width = Math.max((new Date(t.dueDate!).getTime() - new Date(t.startDate!).getTime()) / span * 100, 1.5);
-          const isCritical = criticalSet.has(t.id);
-          const barColor = isCritical ? '#f87171' : (statusColors[t.status] ?? '#4f8ef7');
-
-          const hasBaseline = showBaseline && t.baselineStartDate && t.baselineDueDate;
-          const blLeft = hasBaseline
-            ? (new Date(t.baselineStartDate!).getTime() - minDate.getTime()) / span * 100
-            : 0;
-          const blWidth = hasBaseline
-            ? Math.max((new Date(t.baselineDueDate!).getTime() - new Date(t.baselineStartDate!).getTime()) / span * 100, 1.5)
-            : 0;
-
-          return (
-            <div key={t.id} className="flex items-center gap-3">
-              <div className="w-40 shrink-0 truncate text-xs text-text2" title={t.title}>{t.title}</div>
-              <div
-                className="flex-1 h-6 relative rounded bg-surface2 cursor-ew-resize"
-                data-track={t.id}
-              >
-                {hasBaseline && (
-                  <div
-                    className="absolute h-1 rounded top-1/2 -translate-y-1/2 opacity-60"
-                    style={{ left: `${blLeft}%`, width: `${blWidth}%`, background: '#818cf8' }}
-                  />
-                )}
-                <div
-                  data-task-drag={t.id}
-                  className={`absolute h-full rounded text-[10px] text-white flex items-center px-1.5 overflow-hidden whitespace-nowrap select-none cursor-grab active:cursor-grabbing ${isCritical ? 'ring-1 ring-red' : ''}`}
-                  style={{ left: `${left}%`, width: `${width}%`, background: barColor }}
-                  onPointerDown={e => {
-                    const track = e.currentTarget.closest('[data-track]') as HTMLDivElement | null;
-                    if (track) handleBarDrag(t.id, t.startDate!, t.dueDate!, e, track);
-                  }}
-                >
-                  {width > 8 ? t.title : ''}
-                </div>
-              </div>
-            </div>
-          );
-        })}
       </div>
     </Card>
   );
@@ -688,15 +764,30 @@ function KanbanTab({ projectId }: { projectId: string }) {
 function LinksTab({ projectId }: { projectId: string }) {
   const { data: links = [], isLoading } = useLinks('project', projectId);
   const addLink = useCreateLink();
+  const updateLink = useUpdateLink('project', projectId);
   const deleteLink = useDeleteLink('project', projectId);
-  const [form, setForm] = useState({ url: '', label: '' });
+  const [addForm, setAddForm] = useState({ url: '', label: '' });
   const [adding, setAdding] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ url: '', label: '' });
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    await addLink.mutateAsync({ entityType: 'project', entityId: projectId, url: form.url, label: form.label || undefined });
-    setForm({ url: '', label: '' });
+    await addLink.mutateAsync({ entityType: 'project', entityId: projectId, url: addForm.url, label: addForm.label || undefined });
+    setAddForm({ url: '', label: '' });
     setAdding(false);
+  };
+
+  const openEdit = (l: { id: string; url: string; label: string | null }) => {
+    setEditId(l.id);
+    setEditForm({ url: l.url, label: l.label ?? '' });
+  };
+
+  const handleEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editId) return;
+    await updateLink.mutateAsync({ id: editId, data: { url: editForm.url, label: editForm.label || undefined } });
+    setEditId(null);
   };
 
   if (isLoading) return <div className="flex justify-center py-12"><Spinner /></div>;
@@ -715,7 +806,7 @@ function LinksTab({ projectId }: { projectId: string }) {
             <p className="text-sm text-text2">No links added.</p>
           </div>
         ) : links.map(l => (
-          <div key={l.id} className="flex items-center gap-3 p-3">
+          <div key={l.id} className="flex items-center gap-3 p-3 group">
             <Link2 className="h-4 w-4 text-accent shrink-0" />
             <div className="flex-1 min-w-0">
               <a href={l.url} target="_blank" rel="noopener noreferrer"
@@ -725,7 +816,10 @@ function LinksTab({ projectId }: { projectId: string }) {
               </a>
               {l.label && <p className="text-xs text-text2 truncate">{l.url}</p>}
             </div>
-            <button onClick={() => deleteLink.mutate(l.id)} className="text-text2 hover:text-red shrink-0">
+            <button onClick={() => openEdit(l)} className="text-text2 hover:text-accent shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            <button onClick={() => deleteLink.mutate(l.id)} className="text-text2 hover:text-red shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
               <Trash2 className="h-3.5 w-3.5" />
             </button>
           </div>
@@ -738,15 +832,35 @@ function LinksTab({ projectId }: { projectId: string }) {
           <form onSubmit={handleAdd} className="space-y-3">
             <div className="space-y-1.5">
               <Label>URL</Label>
-              <Input type="url" value={form.url} onChange={e => setForm(f => ({ ...f, url: e.target.value }))} required placeholder="https://" />
+              <Input type="url" value={addForm.url} onChange={e => setAddForm(f => ({ ...f, url: e.target.value }))} required placeholder="https://" />
             </div>
             <div className="space-y-1.5">
               <Label>Label (optional)</Label>
-              <Input value={form.label} onChange={e => setForm(f => ({ ...f, label: e.target.value }))} placeholder="Design doc" />
+              <Input value={addForm.label} onChange={e => setAddForm(f => ({ ...f, label: e.target.value }))} placeholder="Design doc" />
             </div>
             <div className="flex justify-end gap-2 pt-1">
               <Button type="button" variant="outline" onClick={() => setAdding(false)}>Cancel</Button>
               <Button type="submit" disabled={addLink.isPending}>Add</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editId} onOpenChange={o => !o && setEditId(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Edit Link</DialogTitle></DialogHeader>
+          <form onSubmit={handleEdit} className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>URL</Label>
+              <Input type="url" value={editForm.url} onChange={e => setEditForm(f => ({ ...f, url: e.target.value }))} required />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Label (optional)</Label>
+              <Input value={editForm.label} onChange={e => setEditForm(f => ({ ...f, label: e.target.value }))} />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button type="button" variant="outline" onClick={() => setEditId(null)}>Cancel</Button>
+              <Button type="submit" disabled={updateLink.isPending}>Save</Button>
             </div>
           </form>
         </DialogContent>
@@ -763,6 +877,7 @@ function TimeTab({ projectId }: { projectId: string }) {
   const [showLog, setShowLog] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState('');
   const logTime = useCreateTimeLog(selectedTaskId, projectId);
+  const deleteLog = useDeleteTimeLog();
   const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), hours: '', note: '' });
 
   const handleLog = async (e: React.FormEvent) => {
@@ -802,13 +917,20 @@ function TimeTab({ projectId }: { projectId: string }) {
             <p className="text-sm text-text2">No time logged.</p>
           </div>
         ) : logs.map(l => (
-          <div key={l.id} className="flex items-center gap-4 p-3">
+          <div key={l.id} className="flex items-center gap-4 p-3 group">
             <div className="flex-1 min-w-0">
               <p className="text-xs font-medium text-text truncate">{l.task?.title ?? '—'}</p>
               <p className="text-[10px] text-text2">{l.user?.name ?? '—'} · {new Date(l.date).toLocaleDateString()}</p>
             </div>
             <span className="text-sm font-semibold text-text">{l.hours}h</span>
             {l.note && <span className="text-xs text-text2 truncate max-w-[120px]">{l.note}</span>}
+            <button
+              onClick={() => deleteLog.mutate(l.id)}
+              className="text-text2 hover:text-red shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Delete log"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
           </div>
         ))}
       </Card>
