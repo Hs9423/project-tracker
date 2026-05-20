@@ -18,6 +18,7 @@ import {
   DropdownMenuItem, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { Plus, Search, MoreHorizontal, UserX, Pencil } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import type { User } from '@/types/api';
 
 type UserForm = {
@@ -29,33 +30,41 @@ const EMPTY_FORM: UserForm = { name: '', email: '', password: '', role: 'user', 
 
 function UserActions({ user, onEdit }: { user: User; onEdit: (u: User) => void }) {
   const deactivate = useDeactivateUser(user.id);
-
-  const handleDeactivate = async () => {
-    if (!confirm(`Deactivate ${user.name}?`)) return;
-    await deactivate.mutateAsync();
-  };
+  const [confirm, setConfirm] = useState(false);
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button className="text-text2 hover:text-text p-1 rounded hover:bg-surface2">
-          <MoreHorizontal className="h-4 w-4" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => onEdit(user)}>
-          <Pencil className="h-3.5 w-3.5 mr-2" />Edit
-        </DropdownMenuItem>
-        {user.isActive && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-red focus:text-red" onClick={handleDeactivate}>
-              <UserX className="h-3.5 w-3.5 mr-2" />Deactivate
-            </DropdownMenuItem>
-          </>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <ConfirmDialog
+        open={confirm}
+        title={`Deactivate ${user.name}?`}
+        description="This user will no longer be able to log in. Their data will be preserved."
+        confirmLabel="Deactivate"
+        destructive
+        onConfirm={async () => { await deactivate.mutateAsync(); setConfirm(false); }}
+        onCancel={() => setConfirm(false)}
+        isPending={deactivate.isPending}
+      />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className="text-text2 hover:text-text p-1 rounded hover:bg-surface2">
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => onEdit(user)}>
+            <Pencil className="h-3.5 w-3.5 mr-2" />Edit
+          </DropdownMenuItem>
+          {user.isActive && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="text-red focus:text-red" onClick={() => setConfirm(true)}>
+                <UserX className="h-3.5 w-3.5 mr-2" />Deactivate
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
   );
 }
 

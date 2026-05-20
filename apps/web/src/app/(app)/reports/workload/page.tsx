@@ -5,7 +5,10 @@ import { useWorkload, useQueueExport, useExportStatus } from '@/hooks/useReports
 import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { UserAvatar } from '@/components/ui/avatar';
-import { Download, FileText } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Download, FileText, X } from 'lucide-react';
+import { STATUS_LABELS, TASK_STATUSES } from '@/lib/statusHelpers';
+import type { WorkloadRow } from '@/types/api';
 
 function today(): string { return new Date().toISOString().slice(0, 10); }
 function daysAgo(n: number): string { return new Date(Date.now() - n * 86400_000).toISOString().slice(0, 10); }
@@ -38,10 +41,63 @@ function ExportButtons({ from, to }: { from: string; to: string }) {
   );
 }
 
+function WorkloadBreakdownModal({ row, onClose }: { row: WorkloadRow; onClose: () => void }) {
+  const tasksByStatus = row.tasksByStatus ?? {};
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserAvatar name={row.user.name} avatarUrl={row.user.avatarUrl} className="h-6 w-6 text-[10px]" />
+            {row.user.name}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="grid grid-cols-2 gap-3 text-sm mt-1">
+          <div className="rounded-lg bg-surface2 p-3 text-center">
+            <p className="text-xl font-semibold text-text">{row.taskCount}</p>
+            <p className="text-xs text-text2 mt-0.5">Tasks assigned</p>
+          </div>
+          <div className="rounded-lg bg-surface2 p-3 text-center">
+            <p className="text-xl font-semibold" style={{ color: row.loadPercent >= 100 ? '#f87171' : row.loadPercent >= 80 ? '#fbbf24' : '#34d399' }}>
+              {row.loadPercent}%
+            </p>
+            <p className="text-xs text-text2 mt-0.5">Load</p>
+          </div>
+          <div className="rounded-lg bg-surface2 p-3 text-center">
+            <p className="text-xl font-semibold text-text">{row.estimatedHours}h</p>
+            <p className="text-xs text-text2 mt-0.5">Estimated</p>
+          </div>
+          <div className="rounded-lg bg-surface2 p-3 text-center">
+            <p className="text-xl font-semibold text-text">{row.loggedHours}h</p>
+            <p className="text-xs text-text2 mt-0.5">Logged</p>
+          </div>
+        </div>
+        {row.overdueCount > 0 && (
+          <p className="text-xs text-red font-medium mt-1">{row.overdueCount} overdue task{row.overdueCount > 1 ? 's' : ''}</p>
+        )}
+        {Object.keys(tasksByStatus).length > 0 && (
+          <div className="mt-3">
+            <p className="text-xs font-medium text-text mb-2">By status</p>
+            <div className="space-y-1.5">
+              {TASK_STATUSES.filter(s => tasksByStatus[s]).map(s => (
+                <div key={s} className="flex items-center justify-between text-xs">
+                  <span className="text-text2">{STATUS_LABELS[s]}</span>
+                  <span className="font-medium text-text">{tasksByStatus[s]}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function WorkloadReportPage() {
   const [from, setFrom] = useState(daysAgo(30));
   const [to, setTo] = useState(today());
   const { data = [], isLoading } = useWorkload(from, to);
+  const [selectedRow, setSelectedRow] = useState<WorkloadRow | null>(null);
 
   const chartData = data.map(r => ({
     name: r.user.name.split(' ')[0],
@@ -111,7 +167,11 @@ export default function WorkloadReportPage() {
               </thead>
               <tbody>
                 {data.map(r => (
-                  <tr key={r.user.id} className="border-b border-c-border/50 hover:bg-surface2/50">
+                  <tr
+                    key={r.user.id}
+                    className="border-b border-c-border/50 hover:bg-surface2/50 cursor-pointer"
+                    onClick={() => setSelectedRow(r)}
+                  >
                     <td className="px-5 py-2.5">
                       <div className="flex items-center gap-2">
                         <UserAvatar name={r.user.name} avatarUrl={r.user.avatarUrl} className="h-6 w-6 text-[10px]" />
@@ -137,6 +197,8 @@ export default function WorkloadReportPage() {
             </table>
             {!data.length && <p className="text-sm text-text2 p-5">No data for this range.</p>}
           </div>
+
+          {selectedRow && <WorkloadBreakdownModal row={selectedRow} onClose={() => setSelectedRow(null)} />}
         </>
       )}
     </div>

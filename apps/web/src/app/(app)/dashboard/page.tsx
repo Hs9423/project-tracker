@@ -237,7 +237,7 @@ export default function DashboardPage() {
             ) : (
               <div className="space-y-6">
                 {/* Stat cards */}
-                <div className="grid grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <StatCard icon={FolderOpen} label="Active Projects" value={activeCount} color="text-accent" />
                   <StatCard icon={CheckSquare} label="In Progress Tasks" value={inProgressTasks} color="text-green" />
                   <StatCard icon={AlertCircle} label="Overdue Projects" value={overdue} color="text-red" />
@@ -253,13 +253,13 @@ export default function DashboardPage() {
                   {projects.length === 0 ? (
                     <p className="text-sm text-text2">No active projects.</p>
                   ) : (
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                       {projects.slice(0, 9).map(p => <ProjectCard key={p.id} project={p} />)}
                     </div>
                   )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Workload chart */}
                   <Card className="p-4">
                     <h2 className="text-sm font-semibold text-text mb-4 flex items-center gap-2">
@@ -291,7 +291,7 @@ export default function DashboardPage() {
               <div className="flex justify-center py-12"><Spinner /></div>
             ) : (
               <div className="space-y-6">
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <StatCard icon={CheckSquare} label="My Open Tasks" value={myOpen} color="text-accent" />
                   <StatCard icon={Clock} label="Due This Week" value={dueThisWeek} color="text-amber" />
                   <StatCard icon={TrendingUp} label="Hours This Week" value={`${hoursThisWeek}h`} color="text-green" />

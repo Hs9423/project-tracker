@@ -8,6 +8,7 @@ import { NotificationsController } from './notifications.controller';
 import { EmailProcessor } from '../jobs/email.processor';
 import { DueDateProcessor } from '../jobs/due-date.processor';
 import { OverdueProcessor } from '../jobs/overdue.processor';
+import { ReportDigestProcessor } from '../jobs/report-digest.processor';
 import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
@@ -29,6 +30,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     EmailProcessor,
     DueDateProcessor,
     OverdueProcessor,
+    ReportDigestProcessor,
   ],
   controllers: [NotificationsController],
   exports: [NotificationsService],

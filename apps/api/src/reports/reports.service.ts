@@ -244,6 +244,11 @@ export class ReportsService {
         const overdueCount = tasks.filter(t => t.status !== 'done' && t.dueDate && t.dueDate < to).length;
         const loadPercent = Math.round((loggedHours / (workdays * 8)) * 100);
 
+        const tasksByStatus: Record<string, number> = {};
+        for (const t of tasks) {
+          tasksByStatus[t.status] = (tasksByStatus[t.status] ?? 0) + 1;
+        }
+
         return {
           user: u,
           taskCount: tasks.length,
@@ -251,6 +256,7 @@ export class ReportsService {
           loggedHours: Math.round(loggedHours * 100) / 100,
           overdueCount,
           loadPercent,
+          tasksByStatus,
         };
       }),
     );

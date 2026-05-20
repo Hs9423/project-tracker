@@ -26,7 +26,8 @@ import {
   ChevronRight, Plus, ExternalLink, Trash2,
   Clock, Link2, MessageSquare,
 } from 'lucide-react';
-import type { Task, TaskStatus, Priority } from '@/types/api';
+import { TaskTimer } from '@/components/tasks/TaskTimer';
+import type { Task, TaskStatus, Priority, GanttTask } from '@/types/api';
 
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent,
@@ -103,12 +104,13 @@ function TaskTreeRow({
             )}
           </div>
         </td>
-        <td className="py-1.5 pl-2 pr-3 opacity-0 group-hover:opacity-100 transition-opacity w-16">
+        <td className="py-1.5 pl-2 pr-3">
           <div className="flex items-center gap-1">
-            <button onClick={() => onAddSubtask(task.id)} className="text-text2 hover:text-accent">
+            <TaskTimer taskId={task.id} projectId={projectId} />
+            <button onClick={() => onAddSubtask(task.id)} className="text-text2 hover:text-accent opacity-0 group-hover:opacity-100 transition-opacity">
               <Plus className="h-3.5 w-3.5" />
             </button>
-            <button onClick={() => deleteTask.mutate(task.id)} className="text-text2 hover:text-red">
+            <button onClick={() => deleteTask.mutate(task.id)} className="text-text2 hover:text-red opacity-0 group-hover:opacity-100 transition-opacity">
               <Trash2 className="h-3 w-3" />
             </button>
           </div>
@@ -386,8 +388,73 @@ function TasksTab({ projectId }: { projectId: string }) {
 
 // ─── Tab: Gantt ───────────────────────────────────────────────────────────────
 
+function computeCriticalPath(tasks: GanttTask[]): Set<string> {
+  const byId = new Map(tasks.map(t => [t.id, t]));
+
+  const dur = (t: GanttTask) => {
+    if (t.startDate && t.dueDate)
+      return Math.max(new Date(t.dueDate).getTime() - new Date(t.startDate).getTime(), 86400000);
+    return (t.estimatedHours ?? 8) * 3600000;
+  };
+
+  // Forward pass: compute earliest finish
+  const ef = new Map<string, number>();
+  const visited = new Set<string>();
+
+  function fwd(id: string): number {
+    if (ef.has(id)) return ef.get(id)!;
+    if (visited.has(id)) return 0;
+    visited.add(id);
+    const t = byId.get(id);
+    if (!t) return 0;
+    const depFinish = t.dependencies.length
+      ? Math.max(...t.dependencies.map(d => fwd(d.taskId)))
+      : 0;
+    const finish = depFinish + dur(t);
+    ef.set(id, finish);
+    return finish;
+  }
+  tasks.forEach(t => fwd(t.id));
+
+  const projectEnd = Math.max(...Array.from(ef.values()));
+
+  // Backward pass: compute latest finish
+  const lf = new Map<string, number>();
+
+  // Build reverse graph: successors of each task
+  const successors = new Map<string, string[]>();
+  tasks.forEach(t => {
+    t.dependencies.forEach(d => {
+      const arr = successors.get(d.taskId) ?? [];
+      arr.push(t.id);
+      successors.set(d.taskId, arr);
+    });
+  });
+
+  function bwd(id: string): number {
+    if (lf.has(id)) return lf.get(id)!;
+    const succs = successors.get(id) ?? [];
+    if (!succs.length) { lf.set(id, projectEnd); return projectEnd; }
+    const t = byId.get(id)!;
+    const latest = Math.min(...succs.map(s => bwd(s) - dur(byId.get(s)!)));
+    lf.set(id, latest + dur(t));
+    return lf.get(id)!;
+  }
+  tasks.forEach(t => bwd(t.id));
+
+  const critical = new Set<string>();
+  tasks.forEach(t => {
+    const slack = (lf.get(t.id) ?? 0) - (ef.get(t.id) ?? 0);
+    if (Math.abs(slack) < 1) critical.add(t.id);
+  });
+  return critical;
+}
+
 function GanttTab({ projectId }: { projectId: string }) {
   const { data: ganttTasks = [], isLoading } = useGantt(projectId);
+  const updateTask = useUpdateTask(projectId);
+  const [showBaseline, setShowBaseline] = useState(false);
+  const [showCritical, setShowCritical] = useState(false);
 
   if (isLoading) return <div className="flex justify-center py-12"><Spinner /></div>;
 
@@ -399,23 +466,114 @@ function GanttTab({ projectId }: { projectId: string }) {
   const maxDate = new Date(Math.max(...allDates.map(d => d.getTime())));
   const span = Math.max(maxDate.getTime() - minDate.getTime(), 86400000);
 
+  const criticalSet = showCritical ? computeCriticalPath(withDates) : new Set<string>();
+
   const statusColors: Record<string, string> = {
     todo: '#8892aa', in_progress: '#4f8ef7', in_review: '#fbbf24', blocked: '#f87171', done: '#34d399',
   };
 
+  const handleBarDrag = (
+    taskId: string,
+    origStart: string,
+    origDue: string,
+    e: React.PointerEvent<HTMLDivElement>,
+    trackEl: HTMLDivElement,
+  ) => {
+    e.preventDefault();
+    const trackRect = trackEl.getBoundingClientRect();
+    const startX = e.clientX;
+    const durationMs = new Date(origDue).getTime() - new Date(origStart).getTime();
+    const msPerPx = span / trackRect.width;
+
+    const onMove = (mv: PointerEvent) => {
+      const deltaMs = (mv.clientX - startX) * msPerPx;
+      const newStart = new Date(new Date(origStart).getTime() + deltaMs);
+      const newDue = new Date(newStart.getTime() + durationMs);
+      // live visual feedback handled by DOM; skip re-render during drag
+      (trackEl.querySelector(`[data-task-drag="${taskId}"]`) as HTMLElement | null)?.style.setProperty(
+        'left',
+        `${((newStart.getTime() - minDate.getTime()) / span) * 100}%`,
+      );
+    };
+
+    const onUp = (up: PointerEvent) => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      const deltaMs = (up.clientX - startX) * msPerPx;
+      if (Math.abs(deltaMs) < 86400000 / 2) return; // < 12h — no-op
+      const newStart = new Date(new Date(origStart).getTime() + deltaMs);
+      const newDue = new Date(newStart.getTime() + durationMs);
+      updateTask.mutate({
+        id: taskId,
+        data: {
+          startDate: newStart.toISOString().slice(0, 10),
+          dueDate: newDue.toISOString().slice(0, 10),
+        },
+      });
+    };
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  };
+
   return (
     <Card className="p-4 overflow-x-auto">
+      <div className="flex items-center gap-3 mb-4">
+        <button
+          onClick={() => setShowCritical(c => !c)}
+          className={`rounded px-2.5 py-1 text-xs font-medium transition-colors border ${showCritical ? 'bg-red/10 border-red text-red' : 'border-c-border text-text2 hover:text-text bg-surface2'}`}
+        >
+          Critical Path
+        </button>
+        <button
+          onClick={() => setShowBaseline(b => !b)}
+          className={`rounded px-2.5 py-1 text-xs font-medium transition-colors border ${showBaseline ? 'bg-accent/10 border-accent text-accent' : 'border-c-border text-text2 hover:text-text bg-surface2'}`}
+        >
+          Baseline
+        </button>
+        {showBaseline && (
+          <div className="flex items-center gap-3 text-xs text-text2">
+            <span className="flex items-center gap-1"><span className="inline-block w-4 h-1.5 rounded bg-accent/40" /> current</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-4 h-0.5 rounded bg-accent/80" /> baseline</span>
+          </div>
+        )}
+      </div>
       <div className="space-y-2 min-w-[600px]">
         {withDates.map(t => {
           const left = (new Date(t.startDate!).getTime() - minDate.getTime()) / span * 100;
           const width = Math.max((new Date(t.dueDate!).getTime() - new Date(t.startDate!).getTime()) / span * 100, 1.5);
+          const isCritical = criticalSet.has(t.id);
+          const barColor = isCritical ? '#f87171' : (statusColors[t.status] ?? '#4f8ef7');
+
+          const hasBaseline = showBaseline && t.baselineStartDate && t.baselineDueDate;
+          const blLeft = hasBaseline
+            ? (new Date(t.baselineStartDate!).getTime() - minDate.getTime()) / span * 100
+            : 0;
+          const blWidth = hasBaseline
+            ? Math.max((new Date(t.baselineDueDate!).getTime() - new Date(t.baselineStartDate!).getTime()) / span * 100, 1.5)
+            : 0;
+
           return (
             <div key={t.id} className="flex items-center gap-3">
-              <div className="w-40 shrink-0 truncate text-xs text-text2">{t.title}</div>
-              <div className="flex-1 h-6 relative rounded bg-surface2">
+              <div className="w-40 shrink-0 truncate text-xs text-text2" title={t.title}>{t.title}</div>
+              <div
+                className="flex-1 h-6 relative rounded bg-surface2 cursor-ew-resize"
+                data-track={t.id}
+              >
+                {hasBaseline && (
+                  <div
+                    className="absolute h-1 rounded top-1/2 -translate-y-1/2 opacity-60"
+                    style={{ left: `${blLeft}%`, width: `${blWidth}%`, background: '#818cf8' }}
+                  />
+                )}
                 <div
-                  className="absolute h-full rounded text-[10px] text-white flex items-center px-1.5 overflow-hidden whitespace-nowrap"
-                  style={{ left: `${left}%`, width: `${width}%`, background: statusColors[t.status] ?? '#4f8ef7' }}
+                  data-task-drag={t.id}
+                  className={`absolute h-full rounded text-[10px] text-white flex items-center px-1.5 overflow-hidden whitespace-nowrap select-none cursor-grab active:cursor-grabbing ${isCritical ? 'ring-1 ring-red' : ''}`}
+                  style={{ left: `${left}%`, width: `${width}%`, background: barColor }}
+                  onPointerDown={e => {
+                    const track = e.currentTarget.closest('[data-track]') as HTMLDivElement | null;
+                    if (track) handleBarDrag(t.id, t.startDate!, t.dueDate!, e, track);
+                  }}
                 >
                   {width > 8 ? t.title : ''}
                 </div>
@@ -430,52 +588,98 @@ function GanttTab({ projectId }: { projectId: string }) {
 
 // ─── Tab: Kanban ──────────────────────────────────────────────────────────────
 
+type SwimMode = 'status' | 'assignee' | 'priority';
+
 function KanbanTab({ projectId }: { projectId: string }) {
   const { data: board, isLoading } = useKanban(projectId);
+  const { data: team = [] } = useProjectTeam(projectId);
   const updateTask = useUpdateTask(projectId);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [mode, setMode] = useState<SwimMode>('status');
+  const [filterAssignee, setFilterAssignee] = useState('');
+  const [filterPriority, setFilterPriority] = useState('');
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   if (isLoading || !board) return <div className="flex justify-center py-12"><Spinner /></div>;
 
-  const allTasks = TASK_STATUSES.flatMap(s => board[s] ?? []);
+  let allTasks = TASK_STATUSES.flatMap(s => board[s] ?? []);
+  if (filterAssignee) allTasks = allTasks.filter(t => t.assignee?.id === filterAssignee);
+  if (filterPriority) allTasks = allTasks.filter(t => t.priority === filterPriority);
+
   const activeTask = activeId ? allTasks.find(t => t.id === activeId) : null;
-
   const handleDragStart = (e: DragStartEvent) => setActiveId(e.active.id as string);
-
   const handleDragEnd = (e: DragEndEvent) => {
     setActiveId(null);
     const { active, over } = e;
     if (!over) return;
     const overId = over.id as string;
-    const newStatus = TASK_STATUSES.find(s => s === overId || board[s]?.some(t => t.id === overId));
-    if (newStatus) {
-      updateTask.mutate({ id: active.id as string, data: { status: newStatus } });
-    }
+    const newStatus = TASK_STATUSES.find(s => s === overId || allTasks.find(t => t.id === overId && board[s]?.some(bt => bt.id === overId)));
+    if (newStatus) updateTask.mutate({ id: active.id as string, data: { status: newStatus } });
   };
 
+  // Build swim lanes
+  let lanes: { key: string; label: string; tasks: Task[] }[] = [];
+  if (mode === 'status') {
+    lanes = TASK_STATUSES.map(s => ({ key: s, label: STATUS_LABELS[s], tasks: allTasks.filter(t => t.status === s) }));
+  } else if (mode === 'assignee') {
+    const members = team.map(r => r.user);
+    const unassigned = allTasks.filter(t => !t.assigneeId);
+    lanes = [
+      ...members.map(m => ({ key: m.id, label: m.name, tasks: allTasks.filter(t => t.assigneeId === m.id) })),
+      ...(unassigned.length ? [{ key: 'unassigned', label: 'Unassigned', tasks: unassigned }] : []),
+    ].filter(l => l.tasks.length);
+  } else {
+    const priorities = ['critical', 'high', 'medium', 'low'] as const;
+    lanes = priorities.map(p => ({ key: p, label: PRIORITY_LABELS[p], tasks: allTasks.filter(t => t.priority === p) })).filter(l => l.tasks.length);
+  }
+
   return (
-    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="flex gap-3 overflow-x-auto pb-4">
-        {TASK_STATUSES.map(status => (
-          <div key={status} className="shrink-0 w-56">
-            <div className="mb-2 flex items-center justify-between">
-              <Badge variant={statusVariant(status)} className="text-[10px]">{STATUS_LABELS[status]}</Badge>
-              <span className="text-xs text-text2">{board[status]?.length ?? 0}</span>
-            </div>
-            <SortableContext items={board[status]?.map(t => t.id) ?? []} strategy={verticalListSortingStrategy} id={status}>
-              <div className="space-y-2 min-h-[200px] rounded-lg border border-dashed border-c-border p-2">
-                {board[status]?.map(task => <KanbanCard key={task.id} task={task} />)}
-              </div>
-            </SortableContext>
-          </div>
+    <div className="space-y-3">
+      {/* Controls */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-text2">Group by:</span>
+        {(['status', 'assignee', 'priority'] as SwimMode[]).map(m => (
+          <button key={m} onClick={() => setMode(m)}
+            className={`rounded px-2 py-1 text-xs font-medium transition-colors capitalize ${mode === m ? 'bg-accent text-white' : 'bg-surface2 text-text2 hover:text-text border border-c-border'}`}>
+            {m}
+          </button>
         ))}
+        <div className="ml-auto flex items-center gap-2">
+          <select value={filterAssignee} onChange={e => setFilterAssignee(e.target.value)}
+            className="rounded border border-c-border bg-surface2 px-2 py-1 text-xs text-text2 focus:outline-none">
+            <option value="">All people</option>
+            {team.map(r => <option key={r.user.id} value={r.user.id}>{r.user.name}</option>)}
+          </select>
+          <select value={filterPriority} onChange={e => setFilterPriority(e.target.value)}
+            className="rounded border border-c-border bg-surface2 px-2 py-1 text-xs text-text2 focus:outline-none">
+            <option value="">All priorities</option>
+            {(['critical', 'high', 'medium', 'low'] as const).map(p => <option key={p} value={p}>{PRIORITY_LABELS[p]}</option>)}
+          </select>
+        </div>
       </div>
-      <DragOverlay>
-        {activeTask && <KanbanCard task={activeTask} />}
-      </DragOverlay>
-    </DndContext>
+
+      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <div className="flex gap-3 overflow-x-auto pb-4">
+          {lanes.map(lane => (
+            <div key={lane.key} className="shrink-0 w-56">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-medium text-text">{lane.label}</span>
+                <span className="text-xs text-text2">{lane.tasks.length}</span>
+              </div>
+              <SortableContext items={lane.tasks.map(t => t.id)} strategy={verticalListSortingStrategy} id={lane.key}>
+                <div className="space-y-2 min-h-[200px] rounded-lg border border-dashed border-c-border p-2">
+                  {lane.tasks.map(task => <KanbanCard key={task.id} task={task} />)}
+                </div>
+              </SortableContext>
+            </div>
+          ))}
+        </div>
+        <DragOverlay>
+          {activeTask && <KanbanCard task={activeTask} />}
+        </DragOverlay>
+      </DndContext>
+    </div>
   );
 }
 

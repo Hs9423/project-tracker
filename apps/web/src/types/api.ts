@@ -99,6 +99,9 @@ export interface GanttTask {
   title: string;
   startDate: string | null;
   dueDate: string | null;
+  baselineStartDate: string | null;
+  baselineDueDate: string | null;
+  estimatedHours: number | null;
   status: TaskStatus;
   priority: Priority;
   assignee: UserPublic | null;
@@ -256,6 +259,7 @@ export interface WorkloadRow {
   loggedHours: number;
   overdueCount: number;
   loadPercent: number;
+  tasksByStatus?: Partial<Record<TaskStatus, number>>;
 }
 
 export type ReportType = 'project' | 'team-productivity' | 'time-tracking' | 'workload';

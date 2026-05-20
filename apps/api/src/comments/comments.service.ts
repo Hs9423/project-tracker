@@ -1,10 +1,12 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
   Optional,
 } from '@nestjs/common';
 import { EntityType, NotificationType, Prisma } from '@prisma/client';
+import sanitizeHtml from 'sanitize-html';
 import { PrismaService } from '../prisma/prisma.service';
 import { VisibilityService } from '../projects/visibility.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -23,6 +25,7 @@ export class CommentsService {
 
   async create(dto: CreateCommentDto, authorId: string) {
     await this.checkEntityAccess(dto.entityType, dto.entityId, authorId);
+    this.validateAndSanitizeBody(dto.body);
 
     const comment = await this.prisma.comment.create({
       data: {
@@ -123,6 +126,23 @@ export class CommentsService {
 
     // Build threaded structure: top-level first, replies nested
     return this.buildThreaded(all);
+  }
+
+  private validateAndSanitizeBody(body: unknown): void {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new BadRequestException('Invalid comment body');
+    }
+    // Walk all text nodes and sanitize to strip any injected HTML
+    const sanitize = (node: unknown): void => {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) { node.forEach(sanitize); return; }
+      const obj = node as Record<string, unknown>;
+      if (obj.type === 'text' && typeof obj.text === 'string') {
+        obj.text = sanitizeHtml(obj.text, { allowedTags: [], allowedAttributes: {} });
+      }
+      if (Array.isArray(obj.content)) sanitize(obj.content);
+    };
+    sanitize(body);
   }
 
   async update(commentId: string, dto: UpdateCommentDto, userId: string) {

@@ -226,10 +226,13 @@ export class ProjectsService {
       title: t.title,
       startDate: t.startDate,
       dueDate: t.dueDate,
+      baselineStartDate: t.baselineStartDate,
+      baselineDueDate: t.baselineDueDate,
       status: t.status,
       priority: t.priority,
       assignee: t.assignee,
       parentTaskId: t.parentTaskId,
+      estimatedHours: t.estimatedHours,
       dependencies: t.dependsOn.map((d) => ({ taskId: d.dependsOn, type: d.type })),
     }));
   }

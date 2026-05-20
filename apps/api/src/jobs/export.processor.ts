@@ -2,6 +2,7 @@ import { Process, Processor } from '@nestjs/bull';
 import { Job } from 'bull';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as ExcelJS from 'exceljs';
 import { PrismaService } from '../prisma/prisma.service';
 import { HierarchyService } from '../users/hierarchy.service';
 import { ExportReportDto } from '../reports/dto/export-report.dto';
@@ -45,6 +46,21 @@ async function toPdf(html: string): Promise<Buffer> {
   return Buffer.from(pdf);
 }
 
+async function toExcel(title: string, rows: Record<string, unknown>[]): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet(title);
+  if (rows.length) {
+    const keys = Object.keys(rows[0]);
+    sheet.columns = keys.map(k => ({ header: k, key: k, width: 20 }));
+    sheet.getRow(1).font = { bold: true };
+    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+    sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    rows.forEach(row => sheet.addRow(row));
+  }
+  const buf = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buf);
+}
+
 function reportHtml(title: string, rows: Record<string, unknown>[]): string {
   if (!rows.length) return `<html><body><h1>${title}</h1><p>No data.</p></body></html>`;
   const keys = Object.keys(rows[0]);
@@ -85,11 +101,13 @@ export class ExportProcessor {
     const { type, format, filters = {}, userId } = job.data;
     const rows = await this.buildRows(type, filters, userId);
     const dir = ensureExportsDir();
-    const ext = format;
-    const filePath = path.join(dir, `${job.id}.${ext}`);
+    const filePath = path.join(dir, `${job.id}.${format}`);
 
     if (format === 'csv') {
       fs.writeFileSync(filePath, toCsv(rows), 'utf-8');
+    } else if (format === 'xlsx') {
+      const buf = await toExcel(type, rows);
+      fs.writeFileSync(filePath, buf);
     } else {
       const html = reportHtml(type, rows);
       const buf = await toPdf(html);
