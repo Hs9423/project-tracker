@@ -4,25 +4,22 @@ import {
   Injectable,
   ForbiddenException,
 } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { VisibilityService } from '../../projects/visibility.service';
 
 @Injectable()
 export class ProjectAccessGuard implements CanActivate {
-  constructor(private prisma: PrismaService) {}
+  constructor(private visibilityService: VisibilityService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
-    const projectId =
-      request.params.id ?? request.params.projectId;
+    const projectId = request.params.id ?? request.params.projectId;
 
     if (!projectId) return true;
 
-    const visibility = await this.prisma.projectVisibility.findUnique({
-      where: { projectId_userId: { projectId, userId: user.id } },
-    });
+    const canAccess = await this.visibilityService.canUserAccessProject(user.id, projectId);
 
-    if (!visibility) {
+    if (!canAccess) {
       throw new ForbiddenException('No access to this project');
     }
 
