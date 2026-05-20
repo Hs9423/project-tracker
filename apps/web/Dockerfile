@@ -19,4 +19,4 @@ COPY --from=builder /app/apps/web/public ./public
 COPY --from=builder /app/apps/web/package.json .
 COPY --from=builder /app/node_modules ./node_modules
 EXPOSE 3000
-CMD ["npx", "next", "start"]
+CMD ["node_modules/.bin/next", "start", "-p", "3000"]

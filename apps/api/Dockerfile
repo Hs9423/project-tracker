@@ -14,7 +14,7 @@ RUN npm install -g pnpm
 COPY . .
 RUN pnpm install
 # Generate Prisma client so all DB types are available before nest build
-RUN cd apps/api && npx prisma generate
+RUN cd apps/api && node_modules/.bin/prisma generate
 RUN pnpm --filter @project-tracker/api build
 
 FROM node:20-alpine
@@ -34,4 +34,4 @@ COPY --from=builder /app/apps/api/prisma ./prisma
 COPY --from=builder /app/node_modules ./node_modules
 RUN mkdir -p exports
 EXPOSE 3001
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]
+CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy && node dist/main"]
