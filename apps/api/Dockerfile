@@ -38,4 +38,4 @@ COPY --from=builder /app/apps/api/prisma ./prisma
 COPY --from=builder /app/node_modules ./node_modules
 RUN mkdir -p exports
 EXPOSE 3001
-CMD ["sh", "-c", "prisma migrate deploy && node dist/main"]
+CMD ["sh", "-c", "prisma migrate deploy && node dist/src/main"]
