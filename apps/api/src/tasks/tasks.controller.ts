@@ -41,6 +41,12 @@ export class TasksController {
     return this.tasksService.listTasks(projectId);
   }
 
+  // GET /tasks/mine — must come before tasks/:id
+  @Get('tasks/mine')
+  getMyTasks(@CurrentUser() user: JwtPayload) {
+    return this.tasksService.getMyTasks(user.sub);
+  }
+
   // GET /tasks/:id — access check done in service
   @Get('tasks/:id')
   getTask(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: JwtPayload) {

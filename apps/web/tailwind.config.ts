@@ -9,7 +9,22 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['IBM Plex Sans', 'sans-serif'],
+      },
       colors: {
+        // Custom design system colors
+        bg: 'var(--bg)',
+        surface: 'var(--surface)',
+        surface2: 'var(--surface2)',
+        'c-border': 'var(--border)',
+        accent: 'var(--accent)',
+        green: 'var(--green)',
+        amber: 'var(--amber)',
+        red: 'var(--red)',
+        text: 'var(--text)',
+        text2: 'var(--text2)',
+        // shadcn compatibility
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
         card: {
@@ -31,10 +46,6 @@ const config: Config = {
         muted: {
           DEFAULT: 'hsl(var(--muted))',
           foreground: 'hsl(var(--muted-foreground))',
-        },
-        accent: {
-          DEFAULT: 'hsl(var(--accent))',
-          foreground: 'hsl(var(--accent-foreground))',
         },
         destructive: {
           DEFAULT: 'hsl(var(--destructive))',

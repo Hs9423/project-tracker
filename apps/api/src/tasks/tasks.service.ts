@@ -54,6 +54,29 @@ export class TasksService {
     return this.getTaskById(task.id, creatorId);
   }
 
+  // ─── My tasks ────────────────────────────────────────────────────────────
+
+  async getMyTasks(userId: string) {
+    const tasks = await this.prisma.task.findMany({
+      where: { assigneeId: userId, deletedAt: null },
+      include: {
+        assignee: { select: ASSIGNEE_SELECT },
+        _count: { select: { subtasks: true, dependsOn: true } },
+      },
+      orderBy: [{ status: 'asc' }, { dueDate: 'asc' }],
+    });
+
+    const taskIds = tasks.map((t) => t.id);
+    const timeStats = await this.prisma.timeLog.groupBy({
+      by: ['taskId'],
+      where: { taskId: { in: taskIds } },
+      _sum: { hours: true },
+    });
+    const hoursMap = new Map(timeStats.map((s) => [s.taskId, Number(s._sum.hours ?? 0)]));
+
+    return tasks.map((t) => ({ ...t, timeLogged: hoursMap.get(t.id) ?? 0 }));
+  }
+
   // ─── List tasks (tree) ────────────────────────────────────────────────────
 
   async listTasks(projectId: string) {
