@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   useProject, useProjectTeam, useKanban, useGantt,
   useWorkload, useTimeReport, useActivity, useUpdateProject, useDeleteProject,
@@ -27,6 +27,8 @@ import {
   Clock, Link2, MessageSquare, Pencil, Activity, AlertTriangle,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
+import { getSocket } from '@/lib/socket';
 import { TaskTimer } from '@/components/tasks/TaskTimer';
 import type { Task, TaskStatus, Priority, GanttTask } from '@/types/api';
 
@@ -66,11 +68,14 @@ function TaskDetailModal({ taskId, projectId, onClose }: { taskId: string; proje
   const addLink = useCreateLink();
   const updateLink = useUpdateLink('task', taskId);
   const deleteLink = useDeleteLink('task', taskId);
+  const updateTask = useUpdateTask(projectId);
   const [tab, setTab] = useState<TaskDetailTab>('details');
   const [addingLink, setAddingLink] = useState(false);
   const [linkForm, setLinkForm] = useState({ url: '', label: '' });
   const [editLinkId, setEditLinkId] = useState<string | null>(null);
   const [editLinkForm, setEditLinkForm] = useState({ url: '', label: '' });
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [descDraft, setDescDraft] = useState('');
 
   const handleAddLink = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -149,12 +154,47 @@ function TaskDetailModal({ taskId, projectId, onClose }: { taskId: string; proje
                     <p className="text-sm text-text">{task.timeLogged ?? 0}h</p>
                   </div>
                 </div>
-                {task.description && (
-                  <div className="pt-1">
-                    <p className="text-xs text-text2 mb-1">Description</p>
-                    <p className="text-sm text-text whitespace-pre-wrap">{task.description}</p>
+                <div className="pt-1 col-span-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-xs text-text2">Description</p>
+                    {!editingDesc && (
+                      <button
+                        onClick={() => { setDescDraft(task.description ?? ''); setEditingDesc(true); }}
+                        className="text-text2 hover:text-accent p-0.5 rounded"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    )}
                   </div>
-                )}
+                  {editingDesc ? (
+                    <div className="space-y-2">
+                      <textarea
+                        value={descDraft}
+                        onChange={e => setDescDraft(e.target.value)}
+                        rows={4}
+                        autoFocus
+                        className="w-full rounded-md border border-c-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text2 resize-none focus:outline-none focus:ring-1 focus:ring-accent"
+                        placeholder="Add a description…"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={async () => {
+                            await updateTask.mutateAsync({ id: task.id, data: { description: descDraft } });
+                            setEditingDesc(false);
+                          }}
+                          className="text-xs bg-accent text-white px-2.5 py-1 rounded hover:bg-accent/90"
+                        >
+                          Save
+                        </button>
+                        <button onClick={() => setEditingDesc(false)} className="text-xs text-text2 hover:text-text px-2.5 py-1 rounded border border-c-border">Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-text whitespace-pre-wrap min-h-[20px]">
+                      {task.description || <span className="text-text2 italic">No description</span>}
+                    </p>
+                  )}
+                </div>
               </div>
             ) : null
           )}
@@ -479,14 +519,27 @@ function OverviewTab({ projectId }: { projectId: string }) {
 
 // ─── Tab: Tasks ───────────────────────────────────────────────────────────────
 
-type AddTaskForm = { title: string; priority: Priority; dueDate: string; assigneeId: string };
+type AddTaskForm = { title: string; description: string; priority: Priority; dueDate: string; assigneeId: string };
 
 function TasksTab({ projectId }: { projectId: string }) {
   const { data: rawTasks = [], isLoading } = useTasks(projectId);
   const { data: projectTeam = [] } = useProjectTeam(projectId);
   const createTask = useCreateTask(projectId);
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    const socket = getSocket();
+    const handler = (data: { projectId: string }) => {
+      if (data.projectId === projectId) {
+        qc.invalidateQueries({ queryKey: ['tasks', projectId] });
+        qc.invalidateQueries({ queryKey: ['kanban', projectId] });
+      }
+    };
+    socket.on('task:updated', handler);
+    return () => { socket.off('task:updated', handler); };
+  }, [projectId, qc]);
   const [showAdd, setShowAdd] = useState<string | 'root' | null>(null);
-  const [form, setForm] = useState<AddTaskForm>({ title: '', priority: 'medium', dueDate: '', assigneeId: '' });
+  const [form, setForm] = useState<AddTaskForm>({ title: '', description: '', priority: 'medium', dueDate: '', assigneeId: '' });
   const [subtaskParentId, setSubtaskParentId] = useState('');
   const createSubtask = useCreateSubtask(subtaskParentId, projectId);
 
@@ -511,6 +564,7 @@ function TasksTab({ projectId }: { projectId: string }) {
     e.preventDefault();
     const data = {
       title: form.title,
+      description: form.description || undefined,
       priority: form.priority,
       dueDate: form.dueDate || null,
       assigneeId: form.assigneeId || undefined,
@@ -521,7 +575,7 @@ function TasksTab({ projectId }: { projectId: string }) {
       await createSubtask.mutateAsync(data);
     }
     setShowAdd(null);
-    setForm({ title: '', priority: 'medium', dueDate: '', assigneeId: '' });
+    setForm({ title: '', description: '', priority: 'medium', dueDate: '', assigneeId: '' });
   };
 
   if (isLoading) return <div className="flex justify-center py-12"><Spinner /></div>;
@@ -569,6 +623,16 @@ function TasksTab({ projectId }: { projectId: string }) {
             <div className="space-y-1.5">
               <Label>Title</Label>
               <Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} required autoFocus />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Description <span className="text-text2 font-normal">(optional)</span></Label>
+              <textarea
+                value={form.description}
+                onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                rows={3}
+                className="w-full rounded-md border border-c-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text2 resize-none focus:outline-none focus:ring-1 focus:ring-accent"
+                placeholder="Add details…"
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
@@ -1243,7 +1307,7 @@ function ActivityTab({ projectId }: { projectId: string }) {
 const TABS = ['overview', 'tasks', 'gantt', 'kanban', 'links', 'time', 'comments', 'activity'] as const;
 type Tab = typeof TABS[number];
 
-type EditProjectForm = { title: string; description: string; priority: string; status: string; startDate: string; dueDate: string };
+type EditProjectForm = { title: string; description: string; priority: string; status: string; startDate: string; dueDate: string; tagsInput: string };
 
 export default function ProjectDetailPage({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -1251,7 +1315,7 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
   const [tab, setTab] = useState<Tab>('overview');
   const [showDeleteProject, setShowDeleteProject] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
-  const [editForm, setEditForm] = useState<EditProjectForm>({ title: '', description: '', priority: 'medium', status: 'planning', startDate: '', dueDate: '' });
+  const [editForm, setEditForm] = useState<EditProjectForm>({ title: '', description: '', priority: 'medium', status: 'planning', startDate: '', dueDate: '', tagsInput: '' });
   const { data: project, isLoading } = useProject(id);
   const deleteProject = useDeleteProject();
   const updateProject = useUpdateProject(id);
@@ -1288,6 +1352,7 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                   status: project.status,
                   startDate: project.startDate ? new Date(project.startDate).toISOString().split('T')[0] : '',
                   dueDate: project.dueDate ? new Date(project.dueDate).toISOString().split('T')[0] : '',
+                  tagsInput: (project.tags ?? []).join(', '),
                 });
                 setShowEdit(true);
               }}
@@ -1323,6 +1388,7 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
           <form
             onSubmit={async e => {
               e.preventDefault();
+              const tags = editForm.tagsInput.split(',').map(t => t.trim()).filter(Boolean);
               await updateProject.mutateAsync({
                 title: editForm.title,
                 description: editForm.description || undefined,
@@ -1330,6 +1396,7 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                 status: editForm.status,
                 startDate: editForm.startDate || null,
                 dueDate: editForm.dueDate || null,
+                tags,
               });
               setShowEdit(false);
             }}
@@ -1342,6 +1409,14 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
             <div className="space-y-1.5">
               <Label>Description</Label>
               <Input value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Tags</Label>
+              <Input
+                value={editForm.tagsInput}
+                onChange={e => setEditForm(f => ({ ...f, tagsInput: e.target.value }))}
+                placeholder="design, backend, api  (comma-separated)"
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">

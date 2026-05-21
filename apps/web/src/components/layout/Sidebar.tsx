@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, FolderOpen, CheckSquare, Users, BarChart2,
-  Bell, Settings, LogOut, ChevronRight, FileText, Menu, X, ScrollText,
+  Bell, Settings, LogOut, ChevronRight, FileText, Menu, X, ScrollText, SlidersHorizontal,
 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -24,6 +24,7 @@ const adminItems = [
   { href: '/admin/users', label: 'Users', icon: Users },
   { href: '/admin/org-chart', label: 'Org Chart', icon: BarChart2 },
   { href: '/admin/audit-logs', label: 'Audit Log', icon: ScrollText },
+  { href: '/admin/settings', label: 'Settings', icon: SlidersHorizontal },
 ];
 
 export function Sidebar() {

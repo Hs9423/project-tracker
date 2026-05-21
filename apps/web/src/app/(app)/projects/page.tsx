@@ -84,7 +84,7 @@ export default function ProjectsPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [showCreate, setShowCreate] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [form, setForm] = useState<{ title: string; description: string; priority: string; status: string; startDate: string; dueDate: string; assignedTo: string[] }>({ title: '', description: '', priority: 'medium', status: 'planning', startDate: '', dueDate: '', assignedTo: [] });
+  const [form, setForm] = useState<{ title: string; description: string; priority: string; status: string; startDate: string; dueDate: string; assignedTo: string[]; tagsInput: string }>({ title: '', description: '', priority: 'medium', status: 'planning', startDate: '', dueDate: '', assignedTo: [], tagsInput: '' });
 
   const params: Record<string, string> = {};
   if (statusFilter !== 'all') params.status = statusFilter;
@@ -103,14 +103,14 @@ export default function ProjectsPage() {
     e.preventDefault();
     try {
       const assignedTo = form.assignedTo.length > 0 ? form.assignedTo : undefined;
+      const tags = form.tagsInput.split(',').map(t => t.trim()).filter(Boolean);
       await createProject.mutateAsync({
-        ...form,
-        assignedTo,
-        startDate: form.startDate || null,
-        dueDate: form.dueDate || null,
+        title: form.title, description: form.description, priority: form.priority,
+        status: form.status, startDate: form.startDate || null, dueDate: form.dueDate || null,
+        assignedTo, tags,
       });
       setShowCreate(false);
-      setForm({ title: '', description: '', priority: 'medium', status: 'planning', startDate: '', dueDate: '', assignedTo: [] });
+      setForm({ title: '', description: '', priority: 'medium', status: 'planning', startDate: '', dueDate: '', assignedTo: [], tagsInput: '' });
     } catch {
       // error stays in createProject.error
     }
@@ -236,6 +236,14 @@ export default function ProjectsPage() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Tags</Label>
+              <Input
+                value={form.tagsInput}
+                onChange={e => setForm(f => ({ ...f, tagsInput: e.target.value }))}
+                placeholder="design, backend, api  (comma-separated)"
+              />
             </div>
             {(user || team.length > 0) && (
               <div className="space-y-1.5">

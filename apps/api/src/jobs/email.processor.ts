@@ -1,9 +1,11 @@
 import { Processor, Process } from '@nestjs/bull';
 import { Job } from 'bull';
 import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../prisma/prisma.service';
 import * as nodemailer from 'nodemailer';
 
 interface EmailJob {
+  notificationId: string;
   recipientId: string;
   type: string;
   message: string;
@@ -25,7 +27,10 @@ const SUBJECTS: Record<string, string> = {
 export class EmailProcessor {
   private transporter: nodemailer.Transporter;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
     this.transporter = nodemailer.createTransport({
       host: this.config.get<string>('SMTP_HOST', 'localhost'),
       port: this.config.get<number>('SMTP_PORT', 587),
@@ -38,21 +43,27 @@ export class EmailProcessor {
 
   @Process('send')
   async handleSend(job: Job<EmailJob>) {
-    const { type, message } = job.data;
+    const { recipientId, type, message } = job.data;
+
+    const smtpUser = this.config.get<string>('SMTP_USER');
+    if (!smtpUser) return;
+
+    const recipient = await this.prisma.user.findUnique({
+      where: { id: recipientId },
+      select: { email: true, emailNotifications: true, isActive: true },
+    });
+
+    if (!recipient || !recipient.isActive || !recipient.emailNotifications) return;
+
     const from = this.config.get<string>('MAIL_FROM', 'noreply@projecttracker.internal');
     const subject = SUBJECTS[type] ?? 'Project Tracker Notification';
 
-    // In production resolve recipient email from recipientId; skipped here as
-    // we don't want to expose all users in the job data. Extend as needed.
-    const smtpUser = this.config.get<string>('SMTP_USER');
-    if (!smtpUser) return; // no SMTP configured — skip silently
-
     await this.transporter.sendMail({
       from,
-      to: smtpUser, // placeholder — swap for actual user email lookup
+      to: recipient.email,
       subject,
       text: message,
-      html: `<p>${message}</p>`,
+      html: `<p style="font-family:sans-serif;font-size:14px;color:#333">${message}</p>`,
     });
   }
 }

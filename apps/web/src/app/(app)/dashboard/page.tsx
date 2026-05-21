@@ -7,6 +7,8 @@ import { Topbar } from '@/components/layout/Topbar';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { UserAvatar } from '@/components/ui/avatar';
 import { statusVariant, projectStatusVariant, priorityDot, STATUS_LABELS, TASK_STATUSES } from '@/lib/statusHelpers';
@@ -102,34 +104,91 @@ function workloadColor(pct: number) {
   return '#34d399';
 }
 
-function WorkloadChart({ data }: { data: WorkloadEntry[] }) {
+function WorkloadChart({ data, onSelectUser }: { data: WorkloadEntry[]; onSelectUser: (e: WorkloadEntry) => void }) {
   const chartData = data.map(e => ({
     name: e.user.name.split(' ')[0],
     pct: Math.min(Math.round((e.loggedHours / (e.estimatedHours || 1)) * 100), 120),
     tasks: e.taskCount,
     hours: e.loggedHours,
+    overdue: e.overdueCount,
+    entry: e,
   }));
 
   return (
-    <ResponsiveContainer width="100%" height={220}>
-      <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
+    <ResponsiveContainer width="100%" height={Math.max(180, chartData.length * 36)}>
+      <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 24, top: 4, bottom: 4 }}
+        onClick={d => { if (d?.activePayload?.[0]?.payload?.entry) onSelectUser(d.activePayload[0].payload.entry); }}>
         <XAxis type="number" domain={[0, 120]} tick={{ fontSize: 10, fill: '#8892aa' }} tickLine={false} axisLine={false} />
         <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#e2e8f0' }} tickLine={false} axisLine={false} width={56} />
         <Tooltip
           cursor={{ fill: '#1f2436' }}
           contentStyle={{ background: '#181c27', border: '1px solid #2a2f45', borderRadius: 6, fontSize: 12 }}
           labelStyle={{ color: '#e2e8f0' }}
-          formatter={(val: number, _name: string, props: { payload?: { tasks: number; hours: number } }) => [
-            `${val}% load (${props.payload?.tasks ?? 0} tasks, ${props.payload?.hours ?? 0}h)`,
+          formatter={(val: number, _name: string, props: { payload?: { tasks: number; hours: number; overdue: number } }) => [
+            `${val}% load · ${props.payload?.tasks ?? 0} tasks · ${props.payload?.hours ?? 0}h logged · ${props.payload?.overdue ?? 0} overdue`,
           ]}
         />
-        <Bar dataKey="pct" radius={[0, 3, 3, 0]} maxBarSize={18}>
+        <Bar dataKey="pct" radius={[0, 3, 3, 0]} maxBarSize={18} style={{ cursor: 'pointer' }}>
           {chartData.map((entry, i) => (
             <Cell key={i} fill={workloadColor(entry.pct)} />
           ))}
         </Bar>
       </BarChart>
     </ResponsiveContainer>
+  );
+}
+
+function WorkloadBreakdownModal({ entry, onClose }: { entry: WorkloadEntry; onClose: () => void }) {
+  const statuses = ['todo', 'in_progress', 'in_review', 'blocked', 'done'] as const;
+  const pct = Math.min(Math.round((entry.loggedHours / (entry.estimatedHours || 1)) * 100), 120);
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserAvatar name={entry.user.name} avatarUrl={entry.user.avatarUrl} className="h-6 w-6 text-xs" />
+            {entry.user.name}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-text2">Load</span>
+            <span className={`font-semibold ${pct >= 100 ? 'text-red' : pct >= 75 ? 'text-amber' : 'text-green'}`}>{pct}%</span>
+          </div>
+          <div className="h-1.5 rounded-full bg-surface2">
+            <div className="h-1.5 rounded-full transition-all" style={{ width: `${Math.min(pct, 100)}%`, background: workloadColor(pct) }} />
+          </div>
+          <div className="grid grid-cols-3 gap-2 pt-1">
+            <div className="text-center rounded-md bg-surface2 p-2">
+              <p className="text-lg font-semibold text-text">{entry.taskCount}</p>
+              <p className="text-[10px] text-text2">Tasks</p>
+            </div>
+            <div className="text-center rounded-md bg-surface2 p-2">
+              <p className="text-lg font-semibold text-text">{entry.loggedHours}h</p>
+              <p className="text-[10px] text-text2">Logged</p>
+            </div>
+            <div className="text-center rounded-md bg-surface2 p-2">
+              <p className={`text-lg font-semibold ${entry.overdueCount > 0 ? 'text-red' : 'text-text'}`}>{entry.overdueCount}</p>
+              <p className="text-[10px] text-text2">Overdue</p>
+            </div>
+          </div>
+          <div className="pt-1">
+            <p className="text-xs text-text2 mb-2">Tasks by status</p>
+            <div className="space-y-1">
+              {statuses.map(s => {
+                const count = entry.tasksByStatus?.[s] ?? 0;
+                return (
+                  <div key={s} className="flex items-center justify-between">
+                    <span className="text-xs text-text2 capitalize">{s.replace('_', ' ')}</span>
+                    <span className="text-xs font-medium text-text">{count}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -171,7 +230,7 @@ function MiniGantt({ projects }: { projects: Project[] }) {
   );
 }
 
-function TaskRow({ task }: { task: Task }) {
+function TaskRow({ task, projectTitle }: { task: Task; projectTitle: string }) {
   const isOverdue = task.dueDate && task.status !== 'done' && new Date(task.dueDate) < new Date();
   return (
     <tr className={isOverdue ? 'bg-red/5' : undefined}>
@@ -179,7 +238,7 @@ function TaskRow({ task }: { task: Task }) {
         <span className={`text-sm ${isOverdue ? 'text-red' : 'text-text'}`}>{task.title}</span>
       </td>
       <td className="py-2 pr-3">
-        <span className="text-xs text-accent truncate max-w-[120px] block">{task.projectId}</span>
+        <Link href={`/projects/${task.projectId}`} className="text-xs text-accent hover:underline truncate max-w-[120px] block">{projectTitle}</Link>
       </td>
       <td className="py-2 pr-3">
         <Badge variant={statusVariant(task.status)} className="text-[10px]">
@@ -276,12 +335,17 @@ export default function DashboardPage() {
   const { user } = useAuthStore();
   const [tab, setTab] = useState('team');
   const [teamView, setTeamView] = useState<'overview' | 'kanban'>('overview');
+  const [workloadProjectId, setWorkloadProjectId] = useState('');
+  const [workloadUser, setWorkloadUser] = useState<WorkloadEntry | null>(null);
 
   const { data: projects = [], isLoading: projLoading } = useProjects({ status: 'active' });
+  const { data: allProjects = [] } = useProjects();
   const { data: myTasks = [], isLoading: tasksLoading } = useMyTasks();
 
-  const firstProjectId = projects[0]?.id ?? '';
-  const { data: workload = [] } = useWorkload(firstProjectId);
+  const effectiveWorkloadId = workloadProjectId || projects[0]?.id || '';
+  const { data: workload = [] } = useWorkload(effectiveWorkloadId);
+
+  const projectTitleById = Object.fromEntries(allProjects.map(p => [p.id, p.title]));
 
   const activeCount = projects.filter(p => p.status === 'active').length;
   const inProgressTasks = projects.reduce((s, p) => s + (p.tasksByStatus?.in_progress ?? 0), 0);
@@ -351,16 +415,36 @@ export default function DashboardPage() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       {/* Workload chart */}
                       <Card className="p-4">
-                        <h2 className="text-sm font-semibold text-text mb-4 flex items-center gap-2">
-                          <TrendingUp className="h-4 w-4 text-accent" />
-                          Team Workload
-                        </h2>
+                        <div className="flex items-center justify-between mb-4">
+                          <h2 className="text-sm font-semibold text-text flex items-center gap-2">
+                            <TrendingUp className="h-4 w-4 text-accent" />
+                            Team Workload
+                          </h2>
+                          {projects.length > 1 && (
+                            <Select value={workloadProjectId || projects[0]?.id || ''} onValueChange={setWorkloadProjectId}>
+                              <SelectTrigger className="h-7 w-40 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {projects.map(p => (
+                                  <SelectItem key={p.id} value={p.id} className="text-xs">{p.title}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        </div>
                         {workload.length === 0 ? (
-                          <p className="text-sm text-text2 py-8 text-center">Select a project to view workload.</p>
+                          <p className="text-sm text-text2 py-8 text-center">No workload data for this project.</p>
                         ) : (
-                          <WorkloadChart data={workload} />
+                          <>
+                            <p className="text-[10px] text-text2 mb-2">Click a bar to see breakdown</p>
+                            <WorkloadChart data={workload} onSelectUser={setWorkloadUser} />
+                          </>
                         )}
                       </Card>
+                      {workloadUser && (
+                        <WorkloadBreakdownModal entry={workloadUser} onClose={() => setWorkloadUser(null)} />
+                      )}
 
                       {/* Mini Gantt */}
                       <Card className="p-4">
@@ -414,7 +498,7 @@ export default function DashboardPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-c-border">
-                        {myTasks.map(t => <TaskRow key={t.id} task={t} />)}
+                        {myTasks.map(t => <TaskRow key={t.id} task={t} projectTitle={projectTitleById[t.projectId] ?? t.projectId.slice(0, 8) + '…'} />)}
                       </tbody>
                     </table>
                   )}

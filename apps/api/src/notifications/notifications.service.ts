@@ -63,4 +63,18 @@ export class NotificationsService {
       data: { isRead: true },
     });
   }
+
+  emitToRoom(userId: string, event: string, data: unknown) {
+    this.gateway.emitToUser(userId, event, data);
+  }
+
+  async emitTaskUpdate(projectId: string, taskId: string, payload: unknown) {
+    const visibility = await this.prisma.projectVisibility.findMany({
+      where: { projectId },
+      select: { userId: true },
+    });
+    for (const { userId } of visibility) {
+      this.gateway.emitToUser(userId, 'task:updated', { taskId, projectId, ...payload as object });
+    }
+  }
 }

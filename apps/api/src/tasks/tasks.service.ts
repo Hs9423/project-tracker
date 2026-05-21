@@ -232,6 +232,14 @@ export class TasksService {
       },
     });
 
+    if (this.notifications) {
+      await this.notifications.emitTaskUpdate(task.projectId, taskId, {
+        status: updated.status,
+        priority: updated.priority,
+        assigneeId: updated.assigneeId,
+      });
+    }
+
     return updated;
   }
 
