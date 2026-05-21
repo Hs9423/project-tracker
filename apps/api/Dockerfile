@@ -30,7 +30,7 @@ COPY --from=builder /prod/node_modules ./node_modules
 COPY --from=builder /prod/package.json .
 COPY --from=builder /app/apps/api/dist ./dist
 COPY --from=builder /app/apps/api/prisma ./prisma
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+RUN prisma generate
 
 RUN mkdir -p exports
 EXPOSE 3001
