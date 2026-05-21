@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import {
   useProject, useProjectTeam, useKanban, useGantt,
-  useWorkload, useTimeReport, useActivity, useUpdateProject,
+  useWorkload, useTimeReport, useActivity, useUpdateProject, useDeleteProject,
 } from '@/hooks/useProjects';
 import { useTasks, useTask, useCreateTask, useCreateSubtask, useUpdateTask, useDeleteTask, useTaskActivity } from '@/hooks/useTasks';
 import { useLinks, useCreateLink, useUpdateLink, useDeleteLink } from '@/hooks/useLinks';
@@ -24,8 +24,9 @@ import {
 } from '@/lib/statusHelpers';
 import {
   ChevronRight, Plus, ExternalLink, Trash2,
-  Clock, Link2, MessageSquare, Pencil, Activity,
+  Clock, Link2, MessageSquare, Pencil, Activity, AlertTriangle,
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { TaskTimer } from '@/components/tasks/TaskTimer';
 import type { Task, TaskStatus, Priority, GanttTask } from '@/types/api';
 
@@ -1224,8 +1225,11 @@ type Tab = typeof TABS[number];
 
 export default function ProjectDetailPage({ params }: { params: { id: string } }) {
   const { id } = params;
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>('overview');
+  const [showDeleteProject, setShowDeleteProject] = useState(false);
   const { data: project, isLoading } = useProject(id);
+  const deleteProject = useDeleteProject();
 
   if (isLoading) return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -1246,11 +1250,31 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
       <Topbar
         title={project.title}
         actions={
-          <Badge variant={projectStatusVariant(project.status)} className="text-[10px]">
-            {project.status.replace('_', ' ')}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant={projectStatusVariant(project.status)} className="text-[10px]">
+              {project.status.replace('_', ' ')}
+            </Badge>
+            <button onClick={() => setShowDeleteProject(true)} className="text-text2 hover:text-red transition-colors p-1 rounded">
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
         }
       />
+      <Dialog open={showDeleteProject} onOpenChange={setShowDeleteProject}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-red" />Delete Project</DialogTitle></DialogHeader>
+          <p className="text-sm text-text2">This will permanently delete <span className="font-medium text-text">{project.title}</span> and all its tasks. This cannot be undone.</p>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setShowDeleteProject(false)}>Cancel</Button>
+            <Button variant="destructive" disabled={deleteProject.isPending} onClick={async () => {
+              await deleteProject.mutateAsync(id);
+              router.replace('/projects');
+            }}>
+              {deleteProject.isPending ? 'Deleting…' : 'Delete Project'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <div className="border-b border-c-border bg-surface px-6 flex items-center gap-1 shrink-0">
         {TABS.map(t => (
           <button

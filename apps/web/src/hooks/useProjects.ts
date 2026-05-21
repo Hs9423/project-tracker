@@ -84,3 +84,11 @@ export function useUpdateProject(id: string) {
     },
   });
 }
+
+export function useDeleteProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/projects/${id}`).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
+  });
+}
