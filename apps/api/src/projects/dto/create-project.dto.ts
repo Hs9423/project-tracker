@@ -22,7 +22,8 @@ export class CreateProjectDto {
   @IsArray()
   @ArrayMinSize(1)
   @IsUUID('4', { each: true })
-  assignedTo: string[];
+  @IsOptional()
+  assignedTo?: string[];
 
   @IsEnum(ProjectStatus)
   @IsOptional()

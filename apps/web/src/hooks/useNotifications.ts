@@ -6,7 +6,7 @@ import type { Notification } from '@/types/api';
 export function useNotifications() {
   return useQuery<Notification[]>({
     queryKey: ['notifications'],
-    queryFn: () => api.get('/notifications').then(r => r.data),
+    queryFn: () => api.get('/notifications').then(r => r.data.notifications ?? r.data),
   });
 }
 

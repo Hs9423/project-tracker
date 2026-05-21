@@ -28,7 +28,8 @@ export class ProjectsService {
   // ─── Create ───────────────────────────────────────────────────────────────
 
   async create(dto: CreateProjectDto, creatorId: string) {
-    await this.validateAssignees(dto.assignedTo, creatorId);
+    const assigneeIds = dto.assignedTo?.length ? dto.assignedTo : [creatorId];
+    await this.validateAssignees(assigneeIds, creatorId);
 
     const project = await this.prisma.$transaction(async (tx) => {
       const p = await tx.project.create({
@@ -45,7 +46,7 @@ export class ProjectsService {
       });
 
       await tx.projectAssignment.createMany({
-        data: dto.assignedTo.map((userId) => ({
+        data: assigneeIds.map((userId) => ({
           projectId: p.id,
           assignedTo: userId,
           assignedBy: creatorId,
@@ -55,10 +56,10 @@ export class ProjectsService {
       return p;
     });
 
-    await this.visibility.computeVisibility(project.id, dto.assignedTo);
+    await this.visibility.computeVisibility(project.id, assigneeIds);
 
     if (this.notifications) {
-      for (const assigneeId of dto.assignedTo.filter((id) => id !== creatorId)) {
+      for (const assigneeId of assigneeIds.filter((id) => id !== creatorId)) {
         await this.notifications.createAndEmit(
           assigneeId,
           NotificationType.project_assigned,
@@ -386,6 +387,33 @@ export class ProjectsService {
     }
 
     return { byUser: Object.values(byUser), grandTotal };
+  }
+
+  // ─── Delete ───────────────────────────────────────────────────────────────
+
+  async delete(projectId: string) {
+    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) throw new NotFoundException(`Project ${projectId} not found`);
+
+    const tasks = await this.prisma.task.findMany({
+      where: { projectId },
+      select: { id: true },
+    });
+    const taskIds = tasks.map((t) => t.id);
+
+    await this.prisma.$transaction(async (tx) => {
+      if (taskIds.length > 0) {
+        await tx.comment.deleteMany({ where: { entityType: 'task', entityId: { in: taskIds } } });
+        await tx.link.deleteMany({ where: { entityType: 'task', entityId: { in: taskIds } } });
+        await tx.auditLog.deleteMany({ where: { entityType: 'task', entityId: { in: taskIds } } });
+        await tx.notification.deleteMany({ where: { entityType: 'task', entityId: { in: taskIds } } });
+      }
+      await tx.comment.deleteMany({ where: { entityType: 'project', entityId: projectId } });
+      await tx.link.deleteMany({ where: { entityType: 'project', entityId: projectId } });
+      await tx.auditLog.deleteMany({ where: { entityType: 'project', entityId: projectId } });
+      await tx.notification.deleteMany({ where: { entityType: 'project', entityId: projectId } });
+      await tx.project.delete({ where: { id: projectId } });
+    });
   }
 
   // ─── Activity ─────────────────────────────────────────────────────────────

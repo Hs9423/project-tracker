@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -47,6 +50,13 @@ export class ProjectsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.projectsService.update(id, dto, user.sub);
+  }
+
+  @Delete(':id')
+  @UseGuards(ProjectAccessGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  delete(@Param('id', ParseUUIDPipe) id: string) {
+    return this.projectsService.delete(id);
   }
 
   @Get(':id/team')
