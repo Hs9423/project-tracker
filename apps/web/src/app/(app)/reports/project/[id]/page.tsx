@@ -1,5 +1,4 @@
 'use client';
-import { use } from 'react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { useProjectReport, useQueueExport, useExportStatus } from '@/hooks/useReports';
 import { Spinner } from '@/components/ui/spinner';
@@ -50,8 +49,8 @@ function ExportButtons({ projectId }: { projectId: string }) {
   );
 }
 
-export default function ProjectReportPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function ProjectReportPage({ params }: { params: { id: string } }) {
+  const { id } = params;
   const { data, isLoading } = useProjectReport(id);
 
   if (isLoading) return <div className="flex justify-center p-12"><Spinner /></div>;

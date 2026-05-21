@@ -1,5 +1,5 @@
 'use client';
-import { useState, use } from 'react';
+import { useState } from 'react';
 import {
   useProject, useProjectTeam, useKanban, useGantt,
   useWorkload, useTimeReport, useActivity, useUpdateProject,
@@ -1222,8 +1222,8 @@ function ActivityTab({ projectId }: { projectId: string }) {
 const TABS = ['overview', 'tasks', 'gantt', 'kanban', 'links', 'time', 'comments', 'activity'] as const;
 type Tab = typeof TABS[number];
 
-export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function ProjectDetailPage({ params }: { params: { id: string } }) {
+  const { id } = params;
   const [tab, setTab] = useState<Tab>('overview');
   const { data: project, isLoading } = useProject(id);
 
