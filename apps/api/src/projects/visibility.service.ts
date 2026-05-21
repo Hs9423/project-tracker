@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { VisibilityReason } from '@prisma/client';
+import { Role, VisibilityReason } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { HierarchyService } from '../users/hierarchy.service';
 
@@ -76,6 +76,8 @@ export class VisibilityService {
   }
 
   async canUserAccessProject(userId: string, projectId: string): Promise<boolean> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+    if (user?.role === Role.super_admin) return true;
     const entry = await this.prisma.projectVisibility.findUnique({
       where: { projectId_userId: { projectId, userId } },
     });
