@@ -479,13 +479,14 @@ function OverviewTab({ projectId }: { projectId: string }) {
 
 // ─── Tab: Tasks ───────────────────────────────────────────────────────────────
 
-type AddTaskForm = { title: string; priority: Priority; dueDate: string };
+type AddTaskForm = { title: string; priority: Priority; dueDate: string; assigneeId: string };
 
 function TasksTab({ projectId }: { projectId: string }) {
   const { data: rawTasks = [], isLoading } = useTasks(projectId);
+  const { data: projectTeam = [] } = useProjectTeam(projectId);
   const createTask = useCreateTask(projectId);
   const [showAdd, setShowAdd] = useState<string | 'root' | null>(null);
-  const [form, setForm] = useState<AddTaskForm>({ title: '', priority: 'medium', dueDate: '' });
+  const [form, setForm] = useState<AddTaskForm>({ title: '', priority: 'medium', dueDate: '', assigneeId: '' });
   const [subtaskParentId, setSubtaskParentId] = useState('');
   const createSubtask = useCreateSubtask(subtaskParentId, projectId);
 
@@ -508,14 +509,19 @@ function TasksTab({ projectId }: { projectId: string }) {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    const data = { title: form.title, priority: form.priority, dueDate: form.dueDate || null };
+    const data = {
+      title: form.title,
+      priority: form.priority,
+      dueDate: form.dueDate || null,
+      assigneeId: form.assigneeId || undefined,
+    };
     if (showAdd === 'root') {
       await createTask.mutateAsync(data);
     } else {
       await createSubtask.mutateAsync(data);
     }
     setShowAdd(null);
-    setForm({ title: '', priority: 'medium', dueDate: '' });
+    setForm({ title: '', priority: 'medium', dueDate: '', assigneeId: '' });
   };
 
   if (isLoading) return <div className="flex justify-center py-12"><Spinner /></div>;
@@ -582,6 +588,20 @@ function TasksTab({ projectId }: { projectId: string }) {
                 <Input type="date" value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} />
               </div>
             </div>
+            {projectTeam.length > 0 && (
+              <div className="space-y-1.5">
+                <Label>Assignee</Label>
+                <Select value={form.assigneeId} onValueChange={v => setForm(f => ({ ...f, assigneeId: v }))}>
+                  <SelectTrigger className="text-xs"><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Unassigned</SelectItem>
+                    {projectTeam.map(row => (
+                      <SelectItem key={row.id} value={row.user.id} className="text-xs">{row.user.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="flex justify-end gap-2 pt-1">
               <Button type="button" variant="outline" onClick={() => setShowAdd(null)}>Cancel</Button>
               <Button type="submit">Add</Button>
@@ -1223,13 +1243,18 @@ function ActivityTab({ projectId }: { projectId: string }) {
 const TABS = ['overview', 'tasks', 'gantt', 'kanban', 'links', 'time', 'comments', 'activity'] as const;
 type Tab = typeof TABS[number];
 
+type EditProjectForm = { title: string; description: string; priority: string; status: string; startDate: string; dueDate: string };
+
 export default function ProjectDetailPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const router = useRouter();
   const [tab, setTab] = useState<Tab>('overview');
   const [showDeleteProject, setShowDeleteProject] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [editForm, setEditForm] = useState<EditProjectForm>({ title: '', description: '', priority: 'medium', status: 'planning', startDate: '', dueDate: '' });
   const { data: project, isLoading } = useProject(id);
   const deleteProject = useDeleteProject();
+  const updateProject = useUpdateProject(id);
 
   if (isLoading) return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -1254,6 +1279,22 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
             <Badge variant={projectStatusVariant(project.status)} className="text-[10px]">
               {project.status.replace('_', ' ')}
             </Badge>
+            <button
+              onClick={() => {
+                setEditForm({
+                  title: project.title,
+                  description: project.description ?? '',
+                  priority: project.priority,
+                  status: project.status,
+                  startDate: project.startDate ? new Date(project.startDate).toISOString().split('T')[0] : '',
+                  dueDate: project.dueDate ? new Date(project.dueDate).toISOString().split('T')[0] : '',
+                });
+                setShowEdit(true);
+              }}
+              className="text-text2 hover:text-accent transition-colors p-1 rounded"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
             <button onClick={() => setShowDeleteProject(true)} className="text-text2 hover:text-red transition-colors p-1 rounded">
               <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -1273,6 +1314,79 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
               {deleteProject.isPending ? 'Deleting…' : 'Delete Project'}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showEdit} onOpenChange={setShowEdit}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Edit Project</DialogTitle></DialogHeader>
+          <form
+            onSubmit={async e => {
+              e.preventDefault();
+              await updateProject.mutateAsync({
+                title: editForm.title,
+                description: editForm.description || undefined,
+                priority: editForm.priority,
+                status: editForm.status,
+                startDate: editForm.startDate || null,
+                dueDate: editForm.dueDate || null,
+              });
+              setShowEdit(false);
+            }}
+            className="space-y-4"
+          >
+            <div className="space-y-1.5">
+              <Label>Title</Label>
+              <Input value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))} required />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Description</Label>
+              <Input value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Priority</Label>
+                <Select value={editForm.priority} onValueChange={v => setEditForm(f => ({ ...f, priority: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="critical">Critical</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="low">Low</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Status</Label>
+                <Select value={editForm.status} onValueChange={v => setEditForm(f => ({ ...f, status: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="planning">Planning</SelectItem>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="on_hold">On Hold</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Start Date</Label>
+                <Input type="date" value={editForm.startDate} onChange={e => setEditForm(f => ({ ...f, startDate: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Due Date</Label>
+                <Input type="date" value={editForm.dueDate} onChange={e => setEditForm(f => ({ ...f, dueDate: e.target.value }))} />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" onClick={() => setShowEdit(false)}>Cancel</Button>
+              <Button type="submit" disabled={updateProject.isPending}>
+                {updateProject.isPending ? 'Saving…' : 'Save Changes'}
+              </Button>
+            </div>
+          </form>
         </DialogContent>
       </Dialog>
       <div className="border-b border-c-border bg-surface px-6 flex items-center gap-1 shrink-0">

@@ -1,5 +1,5 @@
 'use client';
-import { useNotifications, useMarkAllRead } from '@/hooks/useNotifications';
+import { useNotifications, useMarkAllRead, useMarkNotificationRead } from '@/hooks/useNotifications';
 import { useNotificationStore } from '@/store/notificationStore';
 import { Topbar } from '@/components/layout/Topbar';
 import { Button } from '@/components/ui/button';
@@ -10,8 +10,12 @@ import type { Notification } from '@/types/api';
 
 function NotificationItem({ n }: { n: Notification }) {
   const isUnread = !n.isRead;
+  const markRead = useMarkNotificationRead();
   return (
-    <div className={`flex items-start gap-3 px-4 py-3 border-b border-c-border last:border-0 transition-colors ${isUnread ? 'bg-accent/5' : 'hover:bg-surface2/30'}`}>
+    <div
+      className={`flex items-start gap-3 px-4 py-3 border-b border-c-border last:border-0 transition-colors cursor-pointer ${isUnread ? 'bg-accent/5 hover:bg-accent/10' : 'hover:bg-surface2/30'}`}
+      onClick={() => { if (isUnread) markRead.mutate(n.id); }}
+    >
       <div className={`mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 ${isUnread ? 'bg-accent' : 'bg-transparent'}`} />
       <div className="flex-1 min-w-0">
         <p className={`text-sm ${isUnread ? 'text-text font-medium' : 'text-text2'}`}>{n.message}</p>

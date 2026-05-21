@@ -5,7 +5,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { NotificationType, Priority, ProjectStatus, TaskStatus } from '@prisma/client';
+import { NotificationType, Priority, ProjectStatus, Role, TaskStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { HierarchyService } from '../users/hierarchy.service';
 import { VisibilityService } from './visibility.service';
@@ -462,6 +462,9 @@ export class ProjectsService {
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
   private async validateAssignees(assigneeIds: string[], creatorId: string): Promise<void> {
+    const creator = await this.prisma.user.findUnique({ where: { id: creatorId }, select: { role: true } });
+    if (creator?.role === Role.super_admin) return;
+
     for (const userId of assigneeIds) {
       if (userId === creatorId) continue;
       const isDescendant = await this.hierarchy.isAncestorOf(creatorId, userId);

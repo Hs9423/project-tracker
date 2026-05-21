@@ -202,7 +202,10 @@ type KanbanSwimMode = 'status' | 'project';
 
 function DashboardKanban() {
   const { data: tasks = [], isLoading } = useAllVisibleTasks();
+  const { data: projects = [] } = useProjects();
   const [mode, setMode] = useState<KanbanSwimMode>('status');
+
+  const projectTitleById = Object.fromEntries(projects.map(p => [p.id, p.title]));
 
   if (isLoading) return <div className="flex justify-center py-8"><Spinner /></div>;
   if (tasks.length === 0) return <p className="text-sm text-text2 py-4">No tasks visible.</p>;
@@ -217,7 +220,7 @@ function DashboardKanban() {
     const projectIds = [...new Set(tasks.map(t => t.projectId))];
     lanes = projectIds.map(pid => ({
       key: pid,
-      label: pid.slice(0, 8) + '…',
+      label: projectTitleById[pid] ?? pid.slice(0, 8) + '…',
       tasks: tasks.filter(t => t.projectId === pid),
     }));
   }

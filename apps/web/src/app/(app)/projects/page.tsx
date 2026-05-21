@@ -12,9 +12,11 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { UserAvatar } from '@/components/ui/avatar';
 import { projectStatusVariant, priorityDot } from '@/lib/statusHelpers';
-import { Plus, Search, Calendar, FolderOpen, Trash2 } from 'lucide-react';
+import { Plus, Search, Calendar, FolderOpen, Trash2, Check } from 'lucide-react';
 import Link from 'next/link';
 import type { Project } from '@/types/api';
+import { useMyTeam } from '@/hooks/useUsers';
+import { useAuthStore } from '@/store/authStore';
 
 function ProjectListCard({ project, onDelete }: { project: Project; onDelete: (id: string) => void }) {
   const tasks: Partial<Record<string, number>> = project.tasksByStatus ?? {};
@@ -82,7 +84,7 @@ export default function ProjectsPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [showCreate, setShowCreate] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [form, setForm] = useState({ title: '', description: '', priority: 'medium', status: 'planning', startDate: '', dueDate: '' });
+  const [form, setForm] = useState<{ title: string; description: string; priority: string; status: string; startDate: string; dueDate: string; assignedTo: string[] }>({ title: '', description: '', priority: 'medium', status: 'planning', startDate: '', dueDate: '', assignedTo: [] });
 
   const params: Record<string, string> = {};
   if (statusFilter !== 'all') params.status = statusFilter;
@@ -90,6 +92,8 @@ export default function ProjectsPage() {
   const { data: projects = [], isLoading } = useProjects(Object.keys(params).length ? params : undefined);
   const createProject = useCreateProject();
   const deleteProject = useDeleteProject();
+  const { data: team = [] } = useMyTeam();
+  const { user } = useAuthStore();
 
   const filtered = projects.filter(p =>
     p.title.toLowerCase().includes(search.toLowerCase()),
@@ -98,16 +102,25 @@ export default function ProjectsPage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const assignedTo = form.assignedTo.length > 0 ? form.assignedTo : undefined;
       await createProject.mutateAsync({
         ...form,
+        assignedTo,
         startDate: form.startDate || null,
         dueDate: form.dueDate || null,
       });
       setShowCreate(false);
-      setForm({ title: '', description: '', priority: 'medium', status: 'planning', startDate: '', dueDate: '' });
+      setForm({ title: '', description: '', priority: 'medium', status: 'planning', startDate: '', dueDate: '', assignedTo: [] });
     } catch {
       // error stays in createProject.error
     }
+  };
+
+  const toggleAssignee = (id: string) => {
+    setForm(f => ({
+      ...f,
+      assignedTo: f.assignedTo.includes(id) ? f.assignedTo.filter(x => x !== id) : [...f.assignedTo, id],
+    }));
   };
 
   const handleDelete = async () => {
@@ -224,6 +237,36 @@ export default function ProjectsPage() {
                 </Select>
               </div>
             </div>
+            {(user || team.length > 0) && (
+              <div className="space-y-1.5">
+                <Label>Assignees</Label>
+                <div className="max-h-36 overflow-y-auto rounded-md border border-c-border bg-surface divide-y divide-c-border">
+                  {user && (
+                    <button
+                      type="button"
+                      onClick={() => toggleAssignee(user.id)}
+                      className="flex items-center gap-2.5 w-full px-3 py-2 text-left hover:bg-surface2/50 transition-colors"
+                    >
+                      <UserAvatar name={user.name} avatarUrl={user.avatarUrl} className="h-5 w-5 text-[9px] shrink-0" />
+                      <span className="text-xs text-text flex-1 truncate">{user.name} <span className="text-text2">(you)</span></span>
+                      {form.assignedTo.includes(user.id) && <Check className="h-3.5 w-3.5 text-accent shrink-0" />}
+                    </button>
+                  )}
+                  {team.map(m => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => toggleAssignee(m.id)}
+                      className="flex items-center gap-2.5 w-full px-3 py-2 text-left hover:bg-surface2/50 transition-colors"
+                    >
+                      <UserAvatar name={m.name} avatarUrl={m.avatarUrl} className="h-5 w-5 text-[9px] shrink-0" />
+                      <span className="text-xs text-text flex-1 truncate">{m.name}</span>
+                      {form.assignedTo.includes(m.id) && <Check className="h-3.5 w-3.5 text-accent shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Start Date</Label>
