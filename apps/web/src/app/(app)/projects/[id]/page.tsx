@@ -601,7 +601,7 @@ function OverviewTab({ projectId, onCommentsClick }: { projectId: string; onComm
                   <div key={c.id} className="flex items-start gap-2.5">
                     <UserAvatar
                       name={c.author?.name ?? '?'}
-                      avatarUrl={c.author?.avatarUrl}
+                      avatarUrl={c.author?.avatarUrl ?? null}
                       className="h-6 w-6 text-[9px] shrink-0 mt-0.5"
                     />
                     <div className="flex-1 min-w-0">
