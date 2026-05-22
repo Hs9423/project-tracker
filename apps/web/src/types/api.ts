@@ -187,6 +187,7 @@ export interface WorkloadEntry {
 export interface AuditLog {
   id: string;
   actorId: string | null;
+  actor?: UserPublic | null;
   action: string;
   entityType: string | null;
   entityId: string | null;
@@ -200,6 +201,7 @@ export interface OrgNode {
   role: Role;
   depth: number;
   reportsTo: string | null;
+  avatarUrl: string | null;
   children: OrgNode[];
 }
 

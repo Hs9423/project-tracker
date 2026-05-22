@@ -7,6 +7,7 @@ import {
 import { useTasks, useTask, useCreateTask, useCreateSubtask, useUpdateTask, useDeleteTask, useTaskActivity } from '@/hooks/useTasks';
 import { useLinks, useCreateLink, useUpdateLink, useDeleteLink } from '@/hooks/useLinks';
 import { useCreateTimeLog, useDeleteTimeLog } from '@/hooks/useTimeLogs';
+import { useComments } from '@/hooks/useComments';
 import { CommentThread } from '@/components/comments/CommentThread';
 import { Topbar } from '@/components/layout/Topbar';
 import { Button } from '@/components/ui/button';
@@ -20,17 +21,20 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { UserAvatar } from '@/components/ui/avatar';
 import {
   statusVariant, projectStatusVariant, priorityDot, priorityColor,
-  STATUS_LABELS, PRIORITY_LABELS, TASK_STATUSES,
+  STATUS_LABELS, PRIORITY_LABELS, TASK_STATUSES, dueDateColor,
 } from '@/lib/statusHelpers';
 import {
   ChevronRight, Plus, ExternalLink, Trash2,
-  Clock, Link2, MessageSquare, Pencil, Activity, AlertTriangle,
+  Clock, Link2, MessageSquare, Pencil, Activity, AlertTriangle, UserCircle,
+  Copy, CheckCircle2, Link as LinkIcon,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
 import { getSocket } from '@/lib/socket';
+import { pushToast } from '@/components/ui/toast';
 import { TaskTimer } from '@/components/tasks/TaskTimer';
-import type { Task, TaskStatus, Priority, GanttTask } from '@/types/api';
+import type { Task, TaskStatus, Priority, GanttTask, Comment } from '@/types/api';
 
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent,
@@ -297,21 +301,65 @@ function TaskTreeRow({
   const [expanded, setExpanded] = useState(true);
   const [detailOpen, setDetailOpen] = useState(false);
   const deleteTask = useDeleteTask(projectId);
+  const updateTask = useUpdateTask(projectId);
+  const createTask = useCreateTask(projectId);
   const hasChildren = (task.children?.length ?? 0) > 0;
+  const isDone = task.status === 'done';
+
+  const handleMarkDone = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    updateTask.mutate({ id: task.id, data: { status: isDone ? 'todo' : 'done' } });
+  };
+
+  const handleDuplicate = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    createTask.mutate({
+      title: `Copy of ${task.title}`,
+      description: task.description ?? undefined,
+      priority: task.priority,
+      dueDate: task.dueDate,
+      startDate: task.startDate,
+      estimatedHours: task.estimatedHours ?? undefined,
+      assigneeId: task.assigneeId ?? undefined,
+    });
+  };
+
+  const handleCopyLink = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const link = `${window.location.origin}/task/${task.id}`;
+    navigator.clipboard.writeText(link).then(() => {
+      pushToast({ message: 'Task link copied to clipboard!' });
+    });
+  };
 
   return (
     <>
       {detailOpen && <TaskDetailModal taskId={task.id} projectId={projectId} onClose={() => setDetailOpen(false)} />}
-      <tr className="group hover:bg-surface2/50 transition-colors">
-        <td className="py-1.5 pr-2 w-6 pl-2">
+      <tr className="group hover:bg-surface2/40 transition-colors">
+        <td className="py-1.5 pr-1 w-6 pl-2">
           {hasChildren ? (
             <button onClick={() => setExpanded(e => !e)} className="text-text2 hover:text-text">
               <ChevronRight className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} />
             </button>
           ) : <span className="inline-block w-3.5" />}
         </td>
+        {/* Quick mark-done */}
+        <td className="py-1.5 pr-1 w-5">
+          <button
+            onClick={handleMarkDone}
+            title={isDone ? 'Mark as To Do' : 'Mark as Done'}
+            className="transition-colors"
+          >
+            <CheckCircle2 className={`h-3.5 w-3.5 ${isDone ? 'text-green' : 'text-text2/30 hover:text-green/70'}`} />
+          </button>
+        </td>
         <td className="py-1.5" style={{ paddingLeft: depth * 20 }}>
-          <button onClick={() => setDetailOpen(true)} className="text-sm text-text hover:text-accent hover:underline text-left">{task.title}</button>
+          <button
+            onClick={() => setDetailOpen(true)}
+            className={`text-sm text-left hover:text-accent hover:underline transition-colors ${isDone ? 'line-through text-text2' : 'text-text'}`}
+          >
+            {task.title}
+          </button>
         </td>
         <td className="py-1.5 px-2">
           <TaskStatusSelect taskId={task.id} current={task.status} projectId={projectId} />
@@ -322,10 +370,10 @@ function TaskTreeRow({
         <td className="py-1.5 px-2">
           {task.assignee
             ? <UserAvatar name={task.assignee.name} avatarUrl={task.assignee.avatarUrl} className="h-5 w-5 text-[9px]" />
-            : <span className="text-xs text-text2">—</span>}
+            : <UserCircle className="h-5 w-5 text-text2/30" />}
         </td>
         <td className="py-1.5 px-2">
-          <span className="text-xs text-text2">
+          <span className={`text-xs ${task.status !== 'done' ? dueDateColor(task.dueDate) : 'text-text2'}`}>
             {task.dueDate ? new Date(task.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—'}
           </span>
         </td>
@@ -342,10 +390,16 @@ function TaskTreeRow({
         <td className="py-1.5 pl-2 pr-3">
           <div className="flex items-center gap-1">
             <TaskTimer taskId={task.id} projectId={projectId} />
-            <button onClick={() => onAddSubtask(task.id)} className="text-text2 hover:text-accent opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={() => onAddSubtask(task.id)} title="Add subtask" className="text-text2 hover:text-accent opacity-0 group-hover:opacity-100 transition-opacity">
               <Plus className="h-3.5 w-3.5" />
             </button>
-            <button onClick={() => deleteTask.mutate(task.id)} className="text-text2 hover:text-red opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={handleCopyLink} title="Copy task link" className="text-text2 hover:text-text opacity-0 group-hover:opacity-100 transition-opacity">
+              <LinkIcon className="h-3 w-3" />
+            </button>
+            <button onClick={handleDuplicate} title="Duplicate task" className="text-text2 hover:text-text opacity-0 group-hover:opacity-100 transition-opacity">
+              <Copy className="h-3 w-3" />
+            </button>
+            <button onClick={() => deleteTask.mutate(task.id)} title="Delete task" className="text-text2 hover:text-red opacity-0 group-hover:opacity-100 transition-opacity">
               <Trash2 className="h-3 w-3" />
             </button>
           </div>
@@ -377,7 +431,7 @@ function KanbanCard({ task }: { task: Task }) {
       <div className="flex items-center justify-between mt-1.5">
         {task.assignee
           ? <UserAvatar name={task.assignee.name} avatarUrl={task.assignee.avatarUrl} className="h-5 w-5 text-[9px]" />
-          : <span />}
+          : <UserCircle className="h-5 w-5 text-text2/30" />}
         <div className="flex items-center gap-2">
           {(task.subtaskCount ?? 0) > 0 && (
             <span className="flex items-center gap-0.5 text-[10px] text-text2">
@@ -390,7 +444,7 @@ function KanbanCard({ task }: { task: Task }) {
             </span>
           )}
           {task.dueDate && (
-            <span className="text-[10px] text-text2">
+            <span className={`text-[10px] ${task.status !== 'done' ? dueDateColor(task.dueDate) : 'text-text2'}`}>
               {new Date(task.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
             </span>
           )}
@@ -402,10 +456,35 @@ function KanbanCard({ task }: { task: Task }) {
 
 // ─── Tab: Overview ────────────────────────────────────────────────────────────
 
-function OverviewTab({ projectId }: { projectId: string }) {
+function commentBodyText(body: Record<string, unknown>): string {
+  if (!body || typeof body !== 'object') return '';
+  const content = body.content as Array<Record<string, unknown>> | undefined;
+  if (!content) return '';
+  function renderNode(n: Record<string, unknown>): string {
+    if (n.type === 'text') return (n.text as string) ?? '';
+    if (n.type === 'mention') {
+      const a = n.attrs as Record<string, unknown>;
+      return `@${a.label ?? a.id}`;
+    }
+    return ((n.content as Array<Record<string, unknown>>) ?? []).map(renderNode).join('');
+  }
+  return content.map(renderNode).join(' ').slice(0, 120);
+}
+
+function timeAgoShort(dateStr: string): string {
+  const secs = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (secs < 60) return 'just now';
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+  return `${Math.floor(secs / 86400)}d ago`;
+}
+
+function OverviewTab({ projectId, onCommentsClick }: { projectId: string; onCommentsClick: () => void }) {
+  const router = useRouter();
   const { data: project } = useProject(projectId);
   const { data: team = [] } = useProjectTeam(projectId);
   const { data: links = [] } = useLinks('project', projectId);
+  const { data: comments = [] } = useComments('project', projectId);
   const updateProject = useUpdateProject(projectId);
 
   if (!project) return <div className="flex justify-center py-12"><Spinner /></div>;
@@ -414,6 +493,11 @@ function OverviewTab({ projectId }: { projectId: string }) {
   const total = Object.values(tasks).reduce<number>((s, n) => s + (n ?? 0), 0);
   const done = tasks['done'] ?? 0;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+  const topComments = (comments as Comment[])
+    .filter(c => !c.parentId)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 3);
 
   return (
     <div className="grid grid-cols-3 gap-6">
@@ -466,6 +550,14 @@ function OverviewTab({ projectId }: { projectId: string }) {
                 </div>
               ))}
             </div>
+            <div className="mt-3 pt-3 border-t border-c-border flex justify-end">
+              <Link
+                href={`/reports/project/${projectId}`}
+                className="text-xs text-accent hover:underline flex items-center gap-1"
+              >
+                View full report →
+              </Link>
+            </div>
           </div>
         </Card>
 
@@ -484,6 +576,51 @@ function OverviewTab({ projectId }: { projectId: string }) {
             ))}
             {team.length === 0 && <p className="text-sm text-text2">No team members.</p>}
           </div>
+        </Card>
+
+        <Card className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-text flex items-center gap-1.5">
+              <MessageSquare className="h-3.5 w-3.5 text-accent" />
+              Recent Discussion
+              {comments.length > 0 && <span className="text-[10px] font-normal text-text2">({comments.length})</span>}
+            </h3>
+            <button onClick={onCommentsClick} className="text-xs text-accent hover:underline">
+              See all →
+            </button>
+          </div>
+          {topComments.length === 0 ? (
+            <button onClick={onCommentsClick} className="text-xs text-text2 hover:text-accent transition-colors w-full text-left">
+              No comments yet. Start the discussion →
+            </button>
+          ) : (
+            <div className="space-y-3">
+              {topComments.map(c => {
+                const text = commentBodyText(c.body);
+                return (
+                  <div key={c.id} className="flex items-start gap-2.5">
+                    <UserAvatar
+                      name={c.author?.name ?? '?'}
+                      avatarUrl={c.author?.avatarUrl}
+                      className="h-6 w-6 text-[9px] shrink-0 mt-0.5"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className="text-xs font-medium text-text">{c.author?.name ?? 'User'}</span>
+                        <span className="text-[10px] text-text2">{timeAgoShort(c.createdAt)}</span>
+                      </div>
+                      <p className="text-xs text-text2 line-clamp-2">{text || '(no text)'}</p>
+                    </div>
+                  </div>
+                );
+              })}
+              {comments.length > 3 && (
+                <button onClick={onCommentsClick} className="text-xs text-accent hover:underline pt-1">
+                  +{comments.length - 3} more comments →
+                </button>
+              )}
+            </div>
+          )}
         </Card>
       </div>
 
@@ -507,9 +644,16 @@ function OverviewTab({ projectId }: { projectId: string }) {
             <h3 className="text-sm font-semibold text-text mb-3">Tags</h3>
             <div className="flex flex-wrap gap-1.5">
               {project.tags.map(t => (
-                <span key={t} className="rounded-full bg-surface2 px-2 py-0.5 text-xs text-text2">{t}</span>
+                <button
+                  key={t}
+                  onClick={() => router.push(`/projects?tag=${encodeURIComponent(t)}`)}
+                  className="rounded-full bg-surface2 px-2 py-0.5 text-xs text-text2 hover:bg-accent/20 hover:text-accent transition-colors cursor-pointer"
+                >
+                  {t}
+                </button>
               ))}
             </div>
+            <p className="text-[10px] text-text2 mt-2">Click a tag to filter projects</p>
           </Card>
         )}
       </div>
@@ -519,7 +663,7 @@ function OverviewTab({ projectId }: { projectId: string }) {
 
 // ─── Tab: Tasks ───────────────────────────────────────────────────────────────
 
-type AddTaskForm = { title: string; description: string; priority: Priority; dueDate: string; assigneeId: string };
+type AddTaskForm = { title: string; description: string; priority: Priority; dueDate: string; startDate: string; estimatedHours: string; assigneeId: string };
 
 function TasksTab({ projectId }: { projectId: string }) {
   const { data: rawTasks = [], isLoading } = useTasks(projectId);
@@ -539,7 +683,7 @@ function TasksTab({ projectId }: { projectId: string }) {
     return () => { socket.off('task:updated', handler); };
   }, [projectId, qc]);
   const [showAdd, setShowAdd] = useState<string | 'root' | null>(null);
-  const [form, setForm] = useState<AddTaskForm>({ title: '', description: '', priority: 'medium', dueDate: '', assigneeId: '' });
+  const [form, setForm] = useState<AddTaskForm>({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', estimatedHours: '', assigneeId: '' });
   const [subtaskParentId, setSubtaskParentId] = useState('');
   const createSubtask = useCreateSubtask(subtaskParentId, projectId);
 
@@ -567,15 +711,21 @@ function TasksTab({ projectId }: { projectId: string }) {
       description: form.description || undefined,
       priority: form.priority,
       dueDate: form.dueDate || null,
+      startDate: form.startDate || null,
+      estimatedHours: form.estimatedHours ? parseFloat(form.estimatedHours) : undefined,
       assigneeId: form.assigneeId || undefined,
     };
-    if (showAdd === 'root') {
-      await createTask.mutateAsync(data);
-    } else {
-      await createSubtask.mutateAsync(data);
+    try {
+      if (showAdd === 'root') {
+        await createTask.mutateAsync(data);
+      } else {
+        await createSubtask.mutateAsync(data);
+      }
+      setShowAdd(null);
+      setForm({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', estimatedHours: '', assigneeId: '' });
+    } catch {
+      pushToast({ message: 'Failed to create task. Please try again.' });
     }
-    setShowAdd(null);
-    setForm({ title: '', description: '', priority: 'medium', dueDate: '', assigneeId: '' });
   };
 
   if (isLoading) return <div className="flex justify-center py-12"><Spinner /></div>;
@@ -615,7 +765,7 @@ function TasksTab({ projectId }: { projectId: string }) {
       </Card>
 
       <Dialog open={!!showAdd} onOpenChange={o => !o && setShowAdd(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>{showAdd === 'root' ? 'Add Task' : 'Add Subtask'}</DialogTitle>
           </DialogHeader>
@@ -629,8 +779,8 @@ function TasksTab({ projectId }: { projectId: string }) {
               <textarea
                 value={form.description}
                 onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                rows={3}
-                className="w-full rounded-md border border-c-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text2 resize-none focus:outline-none focus:ring-1 focus:ring-accent"
+                rows={2}
+                className="w-full rounded-md border border-c-border bg-surface2 px-3 py-2 text-sm text-text placeholder:text-text2 resize-none focus:outline-none focus:ring-2 focus:ring-accent/60 focus:border-accent/50 transition-colors"
                 placeholder="Add details…"
               />
             </div>
@@ -648,12 +798,6 @@ function TasksTab({ projectId }: { projectId: string }) {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Due Date</Label>
-                <Input type="date" value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} />
-              </div>
-            </div>
-            {projectTeam.length > 0 && (
-              <div className="space-y-1.5">
                 <Label>Assignee</Label>
                 <Select value={form.assigneeId} onValueChange={v => setForm(f => ({ ...f, assigneeId: v }))}>
                   <SelectTrigger className="text-xs"><SelectValue placeholder="Unassigned" /></SelectTrigger>
@@ -665,10 +809,33 @@ function TasksTab({ projectId }: { projectId: string }) {
                   </SelectContent>
                 </Select>
               </div>
-            )}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Start Date</Label>
+                <Input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Due Date</Label>
+                <Input type="date" value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Estimated Hours <span className="text-text2 font-normal">(optional)</span></Label>
+              <Input
+                type="number"
+                min="0.5"
+                step="0.5"
+                placeholder="e.g. 4"
+                value={form.estimatedHours}
+                onChange={e => setForm(f => ({ ...f, estimatedHours: e.target.value }))}
+              />
+            </div>
             <div className="flex justify-end gap-2 pt-1">
-              <Button type="button" variant="outline" onClick={() => setShowAdd(null)}>Cancel</Button>
-              <Button type="submit">Add</Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setShowAdd(null)}>Cancel</Button>
+              <Button type="submit" size="sm" disabled={createTask.isPending || createSubtask.isPending}>
+                {createTask.isPending || createSubtask.isPending ? 'Adding…' : 'Add Task'}
+              </Button>
             </div>
           </form>
         </DialogContent>
@@ -1168,14 +1335,18 @@ function TimeTab({ projectId }: { projectId: string }) {
   const [showLog, setShowLog] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState('');
   const logTime = useCreateTimeLog(selectedTaskId, projectId);
-  const deleteLog = useDeleteTimeLog();
+  const deleteLog = useDeleteTimeLog(projectId);
   const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), hours: '', note: '' });
 
   const handleLog = async (e: React.FormEvent) => {
     e.preventDefault();
-    await logTime.mutateAsync({ date: form.date, hours: parseFloat(form.hours), note: form.note || undefined });
-    setShowLog(false);
-    setForm({ date: new Date().toISOString().slice(0, 10), hours: '', note: '' });
+    try {
+      await logTime.mutateAsync({ date: form.date, hours: parseFloat(form.hours), note: form.note || undefined });
+      setShowLog(false);
+      setForm({ date: new Date().toISOString().slice(0, 10), hours: '', note: '' });
+    } catch {
+      pushToast({ message: 'Failed to log time. Please try again.' });
+    }
   };
 
   const logs: Array<{ id: string; task?: { title: string }; user?: { name: string }; date: string; hours: number; note: string | null }> = report?.logs ?? [];
@@ -1319,6 +1490,11 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
   const { data: project, isLoading } = useProject(id);
   const deleteProject = useDeleteProject();
   const updateProject = useUpdateProject(id);
+
+  useEffect(() => {
+    if (project?.title) document.title = `${project.title} | TeamTracker`;
+    return () => { document.title = 'TeamTracker'; };
+  }, [project?.title]);
 
   if (isLoading) return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -1478,7 +1654,7 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
         ))}
       </div>
       <div className="flex-1 overflow-y-auto p-6">
-        {tab === 'overview' && <OverviewTab projectId={id} />}
+        {tab === 'overview' && <OverviewTab projectId={id} onCommentsClick={() => setTab('comments')} />}
         {tab === 'tasks' && <TasksTab projectId={id} />}
         {tab === 'gantt' && <GanttTab projectId={id} />}
         {tab === 'kanban' && <KanbanTab projectId={id} />}

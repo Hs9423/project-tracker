@@ -76,7 +76,7 @@ function DraggableOrgNode({
             ? (expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />)
             : <span className="h-3.5 w-3.5 inline-block border-l border-b border-c-border rounded-bl-sm ml-2" />}
         </button>
-        <UserAvatar name={node.name} avatarUrl={null} className="h-6 w-6 text-[10px] shrink-0" />
+        <UserAvatar name={node.name} avatarUrl={node.avatarUrl} className="h-6 w-6 text-[10px] shrink-0" />
         <span className="text-sm text-text flex-1">{node.name}</span>
         <Badge
           variant={node.role === 'super_admin' ? 'warning' : 'muted'}
@@ -109,7 +109,7 @@ function NodeGhost({ node }: { node: OrgNode }) {
   return (
     <div className="flex items-center gap-1.5 py-1.5 px-3 rounded-md bg-surface border border-accent/50 shadow-lg opacity-95 w-fit">
       <GripVertical className="h-3.5 w-3.5 text-text2/40 cursor-grabbing" />
-      <UserAvatar name={node.name} avatarUrl={null} className="h-6 w-6 text-[10px] shrink-0" />
+      <UserAvatar name={node.name} avatarUrl={node.avatarUrl} className="h-6 w-6 text-[10px] shrink-0" />
       <span className="text-sm text-text">{node.name}</span>
     </div>
   );
@@ -133,7 +133,7 @@ function EditPanel({
   return (
     <Card className="p-4">
       <div className="flex items-center gap-3 mb-4">
-        <UserAvatar name={node.name} avatarUrl={null} className="h-10 w-10 text-sm" />
+        <UserAvatar name={node.name} avatarUrl={node.avatarUrl} className="h-10 w-10 text-sm" />
         <div>
           <p className="text-sm font-semibold text-text">{node.name}</p>
           <p className="text-xs text-text2">Depth {node.depth}</p>

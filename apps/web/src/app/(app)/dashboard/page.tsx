@@ -1,7 +1,9 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useProjects, useWorkload } from '@/hooks/useProjects';
+import { useUserProjects } from '@/hooks/useUsers';
 import { useMyTasks, useAllVisibleTasks } from '@/hooks/useTasks';
+import { useTimesheet } from '@/hooks/useTimeLogs';
 import { useAuthStore } from '@/store/authStore';
 import { Topbar } from '@/components/layout/Topbar';
 import { Card } from '@/components/ui/card';
@@ -11,13 +13,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { UserAvatar } from '@/components/ui/avatar';
-import { statusVariant, projectStatusVariant, priorityDot, STATUS_LABELS, TASK_STATUSES } from '@/lib/statusHelpers';
+import { statusVariant, projectStatusVariant, priorityDot, STATUS_LABELS, TASK_STATUSES, dueDateColor } from '@/lib/statusHelpers';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
 import {
   FolderOpen, CheckSquare, AlertCircle, Users,
-  Clock, TrendingUp, Calendar, LayoutGrid,
+  Clock, TrendingUp, Calendar, LayoutGrid, UserCircle, Zap,
 } from 'lucide-react';
 import Link from 'next/link';
 import type { Project, Task, WorkloadEntry, TaskStatus } from '@/types/api';
@@ -141,24 +143,32 @@ function WorkloadChart({ data, onSelectUser }: { data: WorkloadEntry[]; onSelect
 function WorkloadBreakdownModal({ entry, onClose }: { entry: WorkloadEntry; onClose: () => void }) {
   const statuses = ['todo', 'in_progress', 'in_review', 'blocked', 'done'] as const;
   const pct = Math.min(Math.round((entry.loggedHours / (entry.estimatedHours || 1)) * 100), 120);
+  const { data: userProjects = [] } = useUserProjects(entry.user.id);
+  const activeProjects = userProjects.filter(p => p.status !== 'cancelled' && p.status !== 'completed').slice(0, 5);
+
   return (
     <Dialog open onOpenChange={o => !o && onClose()}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <UserAvatar name={entry.user.name} avatarUrl={entry.user.avatarUrl} className="h-6 w-6 text-xs" />
             {entry.user.name}
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-3 text-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-text2">Load</span>
-            <span className={`font-semibold ${pct >= 100 ? 'text-red' : pct >= 75 ? 'text-amber' : 'text-green'}`}>{pct}%</span>
+        <div className="space-y-4 text-sm">
+          {/* Load bar */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-text2">Workload</span>
+              <span className={`text-xs font-semibold ${pct >= 100 ? 'text-red' : pct >= 75 ? 'text-amber' : 'text-green'}`}>{pct}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-surface2">
+              <div className="h-1.5 rounded-full transition-all" style={{ width: `${Math.min(pct, 100)}%`, background: workloadColor(pct) }} />
+            </div>
           </div>
-          <div className="h-1.5 rounded-full bg-surface2">
-            <div className="h-1.5 rounded-full transition-all" style={{ width: `${Math.min(pct, 100)}%`, background: workloadColor(pct) }} />
-          </div>
-          <div className="grid grid-cols-3 gap-2 pt-1">
+
+          {/* Stats */}
+          <div className="grid grid-cols-3 gap-2">
             <div className="text-center rounded-md bg-surface2 p-2">
               <p className="text-lg font-semibold text-text">{entry.taskCount}</p>
               <p className="text-[10px] text-text2">Tasks</p>
@@ -172,20 +182,44 @@ function WorkloadBreakdownModal({ entry, onClose }: { entry: WorkloadEntry; onCl
               <p className="text-[10px] text-text2">Overdue</p>
             </div>
           </div>
-          <div className="pt-1">
-            <p className="text-xs text-text2 mb-2">Tasks by status</p>
-            <div className="space-y-1">
+
+          {/* Tasks by status */}
+          <div>
+            <p className="text-xs font-medium text-text2 mb-1.5">Tasks by status</p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
               {statuses.map(s => {
                 const count = entry.tasksByStatus?.[s] ?? 0;
                 return (
                   <div key={s} className="flex items-center justify-between">
                     <span className="text-xs text-text2 capitalize">{s.replace('_', ' ')}</span>
-                    <span className="text-xs font-medium text-text">{count}</span>
+                    <span className={`text-xs font-medium ${count > 0 ? 'text-text' : 'text-text2'}`}>{count}</span>
                   </div>
                 );
               })}
             </div>
           </div>
+
+          {/* Active projects */}
+          {activeProjects.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-text2 mb-1.5">Active projects</p>
+              <div className="space-y-1">
+                {activeProjects.map(p => (
+                  <Link key={p.id} href={`/projects/${p.id}`} onClick={onClose}
+                    className="flex items-center justify-between p-2 rounded-md hover:bg-surface2 transition-colors group">
+                    <span className="text-xs text-text group-hover:text-accent transition-colors truncate flex-1">{p.title}</span>
+                    <span className={`text-[10px] rounded px-1.5 py-0.5 ml-2 shrink-0 ${
+                      p.status === 'active' ? 'bg-green/15 text-green' :
+                      p.status === 'on_hold' ? 'bg-amber/15 text-amber' : 'bg-surface2 text-text2'
+                    }`}>{p.status.replace('_', ' ')}</span>
+                  </Link>
+                ))}
+                {userProjects.length > 5 && (
+                  <p className="text-[10px] text-text2 text-center pt-1">+{userProjects.length - 5} more projects</p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -246,7 +280,7 @@ function TaskRow({ task, projectTitle }: { task: Task; projectTitle: string }) {
         </Badge>
       </td>
       <td className="py-2 pr-3">
-        <span className={`text-xs ${isOverdue ? 'text-red font-medium' : 'text-text2'}`}>
+        <span className={`text-xs ${task.status !== 'done' ? dueDateColor(task.dueDate) : 'text-text2'} ${isOverdue ? 'font-medium' : ''}`}>
           {task.dueDate ? new Date(task.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—'}
         </span>
       </td>
@@ -314,8 +348,8 @@ function DashboardKanban() {
                     <div className="flex items-center justify-between">
                       {t.assignee
                         ? <UserAvatar name={t.assignee.name} avatarUrl={t.assignee.avatarUrl ?? null} className="h-4 w-4 text-[8px]" />
-                        : <span />}
-                      {t.dueDate && <span className="text-[10px] text-text2">{new Date(t.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>}
+                        : <UserCircle className="h-4 w-4 text-text2/30" />}
+                      {t.dueDate && <span className={`text-[10px] ${t.status !== 'done' ? dueDateColor(t.dueDate) : 'text-text2'}`}>{new Date(t.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>}
                     </div>
                   </div>
                 </Link>
@@ -334,6 +368,8 @@ function DashboardKanban() {
 export default function DashboardPage() {
   const { user } = useAuthStore();
   const [tab, setTab] = useState('team');
+
+  useEffect(() => { document.title = 'Dashboard | TeamTracker'; }, []);
   const [teamView, setTeamView] = useState<'overview' | 'kanban'>('overview');
   const [workloadProjectId, setWorkloadProjectId] = useState('');
   const [workloadUser, setWorkloadUser] = useState<WorkloadEntry | null>(null);
@@ -341,16 +377,24 @@ export default function DashboardPage() {
   const { data: projects = [], isLoading: projLoading } = useProjects({ status: 'active' });
   const { data: allProjects = [] } = useProjects();
   const { data: myTasks = [], isLoading: tasksLoading } = useMyTasks();
+  const currentWeek = (() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + 4 - (d.getDay() || 7));
+    const year = d.getFullYear();
+    const week = Math.ceil(((d.getTime() - new Date(year, 0, 1).getTime()) / 86400000 + 1) / 7);
+    return `${year}-W${String(week).padStart(2, '0')}`;
+  })();
+  const { data: timesheetData } = useTimesheet(currentWeek);
 
   const effectiveWorkloadId = workloadProjectId || projects[0]?.id || '';
   const { data: workload = [] } = useWorkload(effectiveWorkloadId);
 
   const projectTitleById = Object.fromEntries(allProjects.map(p => [p.id, p.title]));
 
-  const activeCount = projects.filter(p => p.status === 'active').length;
+  const activeCount = projects.length;
   const inProgressTasks = projects.reduce((s, p) => s + (p.tasksByStatus?.in_progress ?? 0), 0);
   const overdue = projects.reduce((s, p) => {
-    const tasks = p.tasksByStatus ?? {};
     return s + (p.dueDate && new Date(p.dueDate) < new Date() && p.status !== 'completed' && p.status !== 'cancelled' ? 1 : 0);
   }, 0);
 
@@ -358,7 +402,12 @@ export default function DashboardPage() {
   const today = new Date();
   const weekEnd = new Date(today); weekEnd.setDate(today.getDate() + 7);
   const dueThisWeek = myTasks.filter(t => t.dueDate && new Date(t.dueDate) <= weekEnd && t.status !== 'done').length;
-  const hoursThisWeek = myTasks.reduce((s, t) => s + (t.timeLogged ?? 0), 0);
+  const hoursThisWeek = (timesheetData?.logs ?? []).reduce((s: number, l: { hours: number }) => s + l.hours, 0);
+
+  const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+  const todayFocus = myTasks
+    .filter(t => t.status !== 'done' && t.dueDate && new Date(t.dueDate) <= todayEnd)
+    .sort((a, b) => new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime());
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -482,6 +531,36 @@ export default function DashboardPage() {
                   <StatCard icon={TrendingUp} label="Hours This Week" value={`${hoursThisWeek}h`} color="text-green" />
                 </div>
 
+                {todayFocus.length > 0 && (
+                  <Card className="p-4 border-accent/30 bg-gradient-to-r from-accent/5 to-transparent">
+                    <h2 className="text-sm font-semibold text-text mb-3 flex items-center gap-2">
+                      <Zap className="h-4 w-4 text-accent" />
+                      Today&apos;s Focus
+                      <span className="rounded-full bg-accent/20 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                        {todayFocus.length}
+                      </span>
+                    </h2>
+                    <div className="space-y-1">
+                      {todayFocus.map(t => {
+                        const isOver = new Date(t.dueDate!) < new Date();
+                        return (
+                          <Link key={t.id} href={`/projects/${t.projectId}`}>
+                            <div className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-surface2/60 transition-colors group cursor-pointer">
+                              <span className={`h-2 w-2 rounded-full shrink-0 ${priorityDot(t.priority)}`} />
+                              <span className={`text-sm flex-1 truncate group-hover:text-accent transition-colors ${isOver ? 'text-red' : 'text-text'}`}>
+                                {t.title}
+                              </span>
+                              <span className={`text-[10px] font-semibold shrink-0 ${isOver ? 'text-red' : 'text-amber'}`}>
+                                {isOver ? 'Overdue' : 'Today'}
+                              </span>
+                            </div>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </Card>
+                )}
+
                 <Card className="p-4">
                   <h2 className="text-sm font-semibold text-text mb-4">My Tasks</h2>
                   {myTasks.length === 0 ? (
@@ -498,7 +577,11 @@ export default function DashboardPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-c-border">
-                        {myTasks.map(t => <TaskRow key={t.id} task={t} projectTitle={projectTitleById[t.projectId] ?? t.projectId.slice(0, 8) + '…'} />)}
+                        {[...myTasks].sort((a, b) => {
+                          const aOver = a.dueDate && a.status !== 'done' && new Date(a.dueDate) < new Date() ? -1 : 0;
+                          const bOver = b.dueDate && b.status !== 'done' && new Date(b.dueDate) < new Date() ? -1 : 0;
+                          return aOver - bOver;
+                        }).map(t => <TaskRow key={t.id} task={t} projectTitle={projectTitleById[t.projectId] ?? t.projectId.slice(0, 8) + '…'} />)}
                       </tbody>
                     </table>
                   )}

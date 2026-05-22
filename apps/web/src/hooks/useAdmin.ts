@@ -59,6 +59,9 @@ export function useDeactivateUser(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => api.delete(`/admin/users/${id}`).then(r => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-users'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-users'] });
+      qc.invalidateQueries({ queryKey: ['org-chart'] });
+    },
   });
 }

@@ -34,6 +34,7 @@ export function useCreateTask(projectId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks', projectId] });
       qc.invalidateQueries({ queryKey: ['kanban', projectId] });
+      qc.invalidateQueries({ queryKey: ['project', projectId] });
     },
   });
 }
@@ -43,7 +44,11 @@ export function useCreateSubtask(parentId: string, projectId: string) {
   return useMutation({
     mutationFn: (data: Record<string, unknown>) =>
       api.post(`/tasks/${parentId}/subtasks`, data).then(r => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks', projectId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tasks', projectId] });
+      qc.invalidateQueries({ queryKey: ['kanban', projectId] });
+      qc.invalidateQueries({ queryKey: ['project', projectId] });
+    },
   });
 }
 
@@ -57,6 +62,7 @@ export function useUpdateTask(projectId?: string) {
       if (projectId) {
         qc.invalidateQueries({ queryKey: ['tasks', projectId] });
         qc.invalidateQueries({ queryKey: ['kanban', projectId] });
+        qc.invalidateQueries({ queryKey: ['project', projectId] });
       }
       qc.invalidateQueries({ queryKey: ['my-tasks'] });
     },
@@ -70,6 +76,8 @@ export function useDeleteTask(projectId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks', projectId] });
       qc.invalidateQueries({ queryKey: ['kanban', projectId] });
+      qc.invalidateQueries({ queryKey: ['project', projectId] });
+      qc.invalidateQueries({ queryKey: ['my-tasks'] });
     },
   });
 }

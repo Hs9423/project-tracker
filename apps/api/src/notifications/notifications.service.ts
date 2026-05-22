@@ -77,4 +77,23 @@ export class NotificationsService {
       this.gateway.emitToUser(userId, 'task:updated', { taskId, projectId, ...payload as object });
     }
   }
+
+  async emitCommentNew(entityType: string, entityId: string, comment: unknown) {
+    let projectId: string | null = null;
+    if (entityType === 'project') {
+      projectId = entityId;
+    } else {
+      const task = await this.prisma.task.findUnique({ where: { id: entityId }, select: { projectId: true } });
+      projectId = task?.projectId ?? null;
+    }
+    if (!projectId) return;
+
+    const visibility = await this.prisma.projectVisibility.findMany({
+      where: { projectId },
+      select: { userId: true },
+    });
+    for (const { userId } of visibility) {
+      this.gateway.emitToUser(userId, 'comment:new', { entityType, entityId, comment });
+    }
+  }
 }

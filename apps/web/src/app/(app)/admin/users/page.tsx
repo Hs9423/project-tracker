@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   useAdminUsers, useCreateAdminUser, useUpdateAdminUser, useDeactivateUser,
 } from '@/hooks/useAdmin';
@@ -17,7 +17,7 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
   DropdownMenuItem, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import { Plus, Search, MoreHorizontal, UserX, Pencil } from 'lucide-react';
+import { Plus, Search, MoreHorizontal, UserX, Pencil, Filter } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import type { User } from '@/types/api';
 
@@ -27,6 +27,22 @@ type UserForm = {
 };
 
 const EMPTY_FORM: UserForm = { name: '', email: '', password: '', role: 'user', reportsToId: '' };
+
+function ManagerSelect({ value, onChange, excludeId }: { value: string; onChange: (v: string) => void; excludeId?: string }) {
+  const { data } = useAdminUsers({ limit: 100 });
+  const users = (data?.data ?? []).filter(u => u.id !== excludeId && u.isActive);
+  return (
+    <Select value={value || '__none__'} onValueChange={v => onChange(v === '__none__' ? '' : v)}>
+      <SelectTrigger><SelectValue placeholder="No manager" /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="__none__">No manager</SelectItem>
+        {users.map(u => (
+          <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
 
 function UserActions({ user, onEdit }: { user: User; onEdit: (u: User) => void }) {
   const deactivate = useDeactivateUser(user.id);
@@ -70,16 +86,22 @@ function UserActions({ user, onEdit }: { user: User; onEdit: (u: User) => void }
 
 export default function AdminUsersPage() {
   const [search, setSearch] = useState('');
+  useEffect(() => { document.title = 'Users | TeamTracker'; }, []);
+  const [roleFilter, setRoleFilter] = useState('all');
   const [page, setPage] = useState(1);
   const [showCreate, setShowCreate] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
   const [form, setForm] = useState<UserForm>(EMPTY_FORM);
 
-  const { data, isLoading } = useAdminUsers({ page, limit: 20, ...(search ? { search } : {}) });
+  const queryParams: Record<string, string | number> = { page, limit: 20 };
+  if (search) queryParams.search = search;
+
+  const { data, isLoading } = useAdminUsers(queryParams);
   const createUser = useCreateAdminUser();
   const updateUser = useUpdateAdminUser(editUser?.id ?? '');
 
-  const users = data?.data ?? [];
+  const allUsers = data?.data ?? [];
+  const users = roleFilter === 'all' ? allUsers : allUsers.filter(u => u.role === roleFilter);
   const meta = data?.meta;
 
   const openEdit = (u: User) => {
@@ -89,20 +111,28 @@ export default function AdminUsersPage() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    await createUser.mutateAsync({ ...form, reportsToId: form.reportsToId || null });
-    setShowCreate(false);
-    setForm(EMPTY_FORM);
+    try {
+      await createUser.mutateAsync({ ...form, reportsToId: form.reportsToId || null });
+      setShowCreate(false);
+      setForm(EMPTY_FORM);
+    } catch {
+      // error displayed via createUser.error
+    }
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
-    await updateUser.mutateAsync({
-      name: form.name,
-      email: form.email,
-      role: form.role,
-      ...(form.password ? { password: form.password } : {}),
-    });
-    setEditUser(null);
+    try {
+      await updateUser.mutateAsync({
+        name: form.name,
+        email: form.email,
+        role: form.role,
+        ...(form.password ? { password: form.password } : {}),
+      });
+      setEditUser(null);
+    } catch {
+      // error displayed via updateUser.error
+    }
   };
 
   return (
@@ -117,14 +147,30 @@ export default function AdminUsersPage() {
       />
 
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="relative max-w-xs mb-5">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text2" />
-          <Input
-            className="pl-8 text-sm h-8"
-            placeholder="Search users…"
-            value={search}
-            onChange={e => { setSearch(e.target.value); setPage(1); }}
-          />
+        <div className="flex items-center gap-3 mb-5">
+          <div className="relative flex-1 max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text2" />
+            <Input
+              className="pl-8 text-sm h-8"
+              placeholder="Search users…"
+              value={search}
+              onChange={e => { setSearch(e.target.value); setPage(1); }}
+            />
+          </div>
+          <Select value={roleFilter} onValueChange={v => { setRoleFilter(v); setPage(1); }}>
+            <SelectTrigger className="w-32 h-8 text-xs">
+              <Filter className="h-3 w-3 mr-1.5 text-text2" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Roles</SelectItem>
+              <SelectItem value="user">Users</SelectItem>
+              <SelectItem value="super_admin">Admins</SelectItem>
+            </SelectContent>
+          </Select>
+          {meta && (
+            <span className="text-xs text-text2 ml-auto">{meta.total} user{meta.total !== 1 ? 's' : ''}</span>
+          )}
         </div>
 
         {isLoading ? (
@@ -198,7 +244,7 @@ export default function AdminUsersPage() {
         )}
       </div>
 
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+      <Dialog open={showCreate} onOpenChange={o => { setShowCreate(o); if (!o) setForm(EMPTY_FORM); }}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>New User</DialogTitle></DialogHeader>
           <form onSubmit={handleCreate} className="space-y-3">
@@ -228,9 +274,23 @@ export default function AdminUsersPage() {
                 </Select>
               </div>
             </div>
+            <div className="space-y-1.5">
+              <Label>Reports To (Manager)</Label>
+              <ManagerSelect
+                value={form.reportsToId}
+                onChange={v => setForm(f => ({ ...f, reportsToId: v }))}
+              />
+            </div>
+            {createUser.isError && (
+              <p className="text-xs text-red">
+                {(createUser.error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to create user.'}
+              </p>
+            )}
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-              <Button type="submit" disabled={createUser.isPending}>Create</Button>
+              <Button type="submit" disabled={createUser.isPending}>
+                {createUser.isPending ? 'Creating…' : 'Create'}
+              </Button>
             </div>
           </form>
         </DialogContent>
@@ -266,9 +326,24 @@ export default function AdminUsersPage() {
                 </Select>
               </div>
             </div>
+            <div className="space-y-1.5">
+              <Label>Reports To (Manager)</Label>
+              <ManagerSelect
+                value={form.reportsToId}
+                onChange={v => setForm(f => ({ ...f, reportsToId: v }))}
+                excludeId={editUser?.id}
+              />
+            </div>
+            {updateUser.isError && (
+              <p className="text-xs text-red">
+                {(updateUser.error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to update user.'}
+              </p>
+            )}
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="outline" onClick={() => setEditUser(null)}>Cancel</Button>
-              <Button type="submit" disabled={updateUser.isPending}>Save</Button>
+              <Button type="submit" disabled={updateUser.isPending}>
+                {updateUser.isPending ? 'Saving…' : 'Save Changes'}
+              </Button>
             </div>
           </form>
         </DialogContent>

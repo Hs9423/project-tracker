@@ -26,24 +26,35 @@ export function useCreateTimeLog(taskId: string, projectId?: string) {
       api.post(`/tasks/${taskId}/time-logs`, data).then(r => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['time-logs', taskId] });
+      qc.invalidateQueries({ queryKey: ['task', taskId] });
+      qc.invalidateQueries({ queryKey: ['my-tasks'] });
+      if (projectId) {
+        qc.invalidateQueries({ queryKey: ['time-report', projectId] });
+        qc.invalidateQueries({ queryKey: ['tasks', projectId] });
+      }
+    },
+  });
+}
+
+export function useUpdateTimeLog(projectId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<{ date: string; hours: number; note: string }> }) =>
+      api.patch(`/time-logs/${id}`, data).then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['time-logs'] });
       if (projectId) qc.invalidateQueries({ queryKey: ['time-report', projectId] });
     },
   });
 }
 
-export function useUpdateTimeLog() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<{ date: string; hours: number; note: string }> }) =>
-      api.patch(`/time-logs/${id}`, data).then(r => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['time-logs'] }),
-  });
-}
-
-export function useDeleteTimeLog() {
+export function useDeleteTimeLog(projectId?: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.delete(`/time-logs/${id}`).then(r => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['time-logs'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['time-logs'] });
+      if (projectId) qc.invalidateQueries({ queryKey: ['time-report', projectId] });
+    },
   });
 }

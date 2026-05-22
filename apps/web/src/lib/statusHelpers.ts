@@ -29,3 +29,14 @@ export function priorityDot(p: Priority) {
 }
 
 export const TASK_STATUSES: TaskStatus[] = ['todo', 'in_progress', 'in_review', 'blocked', 'done'];
+
+export function dueDateColor(dueDate: string | null | undefined): string {
+  if (!dueDate) return 'text-text2';
+  const now = new Date();
+  const due = new Date(dueDate);
+  const diffMs = due.getTime() - now.getTime();
+  const diffDays = diffMs / (1000 * 60 * 60 * 24);
+  if (diffDays < 0) return 'text-red';
+  if (diffDays <= 3) return 'text-amber';
+  return 'text-text2';
+}

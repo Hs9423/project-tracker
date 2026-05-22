@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Patch, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtPayload } from '@project-tracker/shared';
@@ -17,6 +17,16 @@ export class UsersController {
   @Patch('me')
   updateMe(@Body() dto: { name?: string; avatarUrl?: string }, @CurrentUser() user: JwtPayload) {
     return this.usersService.updateMe(user.sub, dto);
+  }
+
+  @Patch('me/password')
+  async changePassword(
+    @Body() dto: { currentPassword: string; newPassword: string },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    if (!dto.currentPassword || !dto.newPassword) throw new BadRequestException('currentPassword and newPassword are required');
+    if (dto.newPassword.length < 8) throw new BadRequestException('Password must be at least 8 characters');
+    return this.usersService.changePassword(user.sub, dto.currentPassword, dto.newPassword);
   }
 
   @Get('me/preferences')

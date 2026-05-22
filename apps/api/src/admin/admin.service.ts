@@ -4,6 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import * as fs from 'fs';
+import * as path from 'path';
 import { Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { HierarchyService } from '../users/hierarchy.service';
@@ -13,6 +15,21 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangeParentDto } from './dto/change-parent.dto';
 import { ListUsersQueryDto } from './dto/list-users-query.dto';
 import { ListAuditLogsQueryDto } from './dto/list-audit-logs-query.dto';
+
+export interface SystemSettings {
+  allowSelfRegistration: boolean;
+  defaultNotificationsEnabled: boolean;
+  maxHierarchyDepth: number;
+  sessionTimeoutMinutes: number;
+}
+
+const SETTINGS_FILE = path.join(process.cwd(), 'system-settings.json');
+const DEFAULT_SETTINGS: SystemSettings = {
+  allowSelfRegistration: false,
+  defaultNotificationsEnabled: true,
+  maxHierarchyDepth: 10,
+  sessionTimeoutMinutes: 60,
+};
 
 @Injectable()
 export class AdminService {
@@ -177,7 +194,7 @@ export class AdminService {
     const users = await this.prisma.user.findMany({
       where: { isActive: true },
       orderBy: [{ depth: 'asc' }, { name: 'asc' }],
-      select: { id: true, name: true, role: true, depth: true, reportsTo: true },
+      select: { id: true, name: true, role: true, depth: true, reportsTo: true, avatarUrl: true },
     });
 
     const nodeMap = new Map<string, OrgNode>();
@@ -197,6 +214,41 @@ export class AdminService {
     }
 
     return roots;
+  }
+
+  // ─── System Settings ─────────────────────────────────────────────────────
+
+  getSettings(): SystemSettings {
+    try {
+      if (fs.existsSync(SETTINGS_FILE)) {
+        const raw = fs.readFileSync(SETTINGS_FILE, 'utf-8');
+        return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+      }
+    } catch {
+      // fall through to defaults
+    }
+    return { ...DEFAULT_SETTINGS };
+  }
+
+  updateSettings(patch: Partial<SystemSettings>): SystemSettings {
+    const current = this.getSettings();
+    const updated: SystemSettings = { ...current };
+
+    if (typeof patch.allowSelfRegistration === 'boolean') updated.allowSelfRegistration = patch.allowSelfRegistration;
+    if (typeof patch.defaultNotificationsEnabled === 'boolean') updated.defaultNotificationsEnabled = patch.defaultNotificationsEnabled;
+    if (typeof patch.maxHierarchyDepth === 'number' && patch.maxHierarchyDepth >= 1 && patch.maxHierarchyDepth <= 20) {
+      updated.maxHierarchyDepth = patch.maxHierarchyDepth;
+    }
+    if (typeof patch.sessionTimeoutMinutes === 'number' && patch.sessionTimeoutMinutes >= 15 && patch.sessionTimeoutMinutes <= 10080) {
+      updated.sessionTimeoutMinutes = patch.sessionTimeoutMinutes;
+    }
+
+    try {
+      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(updated, null, 2), 'utf-8');
+    } catch {
+      // If write fails (e.g. read-only FS), still return the in-memory result
+    }
+    return updated;
   }
 
   // ─── Audit Logs ───────────────────────────────────────────────────────────
@@ -225,8 +277,17 @@ export class AdminService {
       this.prisma.auditLog.count({ where }),
     ]);
 
+    const actorIds = [...new Set(logs.map(l => l.actorId).filter(Boolean))] as string[];
+    const actors = actorIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: actorIds } },
+          select: { id: true, name: true, email: true, avatarUrl: true },
+        })
+      : [];
+    const actorMap = Object.fromEntries(actors.map(a => [a.id, a]));
+
     return {
-      data: logs,
+      data: logs.map(l => ({ ...l, actor: l.actorId ? (actorMap[l.actorId] ?? null) : null })),
       meta: { total, page, limit, pages: Math.ceil(total / limit) },
     };
   }
@@ -251,5 +312,6 @@ export interface OrgNode {
   role: Role;
   depth: number;
   reportsTo: string | null;
+  avatarUrl: string | null;
   children: OrgNode[];
 }

@@ -1,6 +1,7 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMyTasks, useUpdateTask } from '@/hooks/useTasks';
+import { useProjects } from '@/hooks/useProjects';
 import { useTimesheet } from '@/hooks/useTimeLogs';
 import { Topbar } from '@/components/layout/Topbar';
 import { Card } from '@/components/ui/card';
@@ -8,8 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
-import { statusVariant, priorityDot, TASK_STATUSES, STATUS_LABELS } from '@/lib/statusHelpers';
-import { CheckSquare, Clock, AlertTriangle, ChevronLeft, ChevronRight, Calendar, BarChart2 } from 'lucide-react';
+import { statusVariant, priorityDot, TASK_STATUSES, STATUS_LABELS, dueDateColor } from '@/lib/statusHelpers';
+import { CheckSquare, Clock, AlertTriangle, ChevronLeft, ChevronRight, Calendar, BarChart2, CheckSquare2 } from 'lucide-react';
 import Link from 'next/link';
 import type { Task, TaskStatus } from '@/types/api';
 
@@ -48,7 +49,7 @@ function StatCard({ icon: Icon, label, value, color = 'text-accent' }: {
   );
 }
 
-function TaskRow({ task }: { task: Task }) {
+function TaskRow({ task, projectTitle }: { task: Task; projectTitle: string }) {
   const update = useUpdateTask();
   const isOverdue = task.dueDate && task.status !== 'done' && new Date(task.dueDate) < new Date();
   return (
@@ -61,7 +62,7 @@ function TaskRow({ task }: { task: Task }) {
       </td>
       <td className="py-2 pr-3">
         <Link href={`/projects/${task.projectId}`} className="text-xs text-accent hover:underline truncate max-w-[120px] block">
-          {task.projectId}
+          {projectTitle}
         </Link>
       </td>
       <td className="py-2 pr-3">
@@ -75,7 +76,7 @@ function TaskRow({ task }: { task: Task }) {
         </Select>
       </td>
       <td className="py-2 pr-3">
-        <span className={`text-xs ${isOverdue ? 'text-red font-medium' : 'text-text2'}`}>
+        <span className={`text-xs ${task.status !== 'done' ? dueDateColor(task.dueDate) : 'text-text2'} ${isOverdue ? 'font-medium' : ''}`}>
           {task.dueDate ? new Date(task.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—'}
         </span>
       </td>
@@ -90,7 +91,7 @@ function TaskRow({ task }: { task: Task }) {
 
 function KanbanColumn({ status, tasks }: { status: TaskStatus; tasks: Task[] }) {
   return (
-    <div className="shrink-0 w-48">
+    <div className="shrink-0 w-52">
       <div className="mb-2 flex items-center justify-between">
         <Badge variant={statusVariant(status)} className="text-[10px]">{STATUS_LABELS[status]}</Badge>
         <span className="text-xs text-text2">{tasks.length}</span>
@@ -98,12 +99,27 @@ function KanbanColumn({ status, tasks }: { status: TaskStatus; tasks: Task[] }) 
       <div className="space-y-2 min-h-[160px] rounded-lg border border-dashed border-c-border p-2">
         {tasks.map(t => (
           <div key={t.id} className="rounded-md border border-c-border bg-surface p-2.5">
-            <p className="text-xs text-text leading-snug mb-1.5">{t.title}</p>
-            {t.dueDate && (
-              <p className="text-[10px] text-text2">
-                {new Date(t.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-              </p>
-            )}
+            <div className="flex items-start justify-between gap-1.5 mb-1.5">
+              <p className="text-xs text-text leading-snug flex-1">{t.title}</p>
+              <span className={`h-1.5 w-1.5 rounded-full shrink-0 mt-1 ${priorityDot(t.priority)}`} />
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {t.dueDate && (
+                <span className={`text-[10px] ${t.status !== 'done' ? dueDateColor(t.dueDate) : 'text-text2'}`}>
+                  {new Date(t.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                </span>
+              )}
+              {(t.subtaskCount ?? 0) > 0 && (
+                <span className="flex items-center gap-0.5 text-[10px] text-text2">
+                  <CheckSquare2 className="h-2.5 w-2.5" />{t.subtaskCount}
+                </span>
+              )}
+              {(t.timeLogged ?? 0) > 0 && (
+                <span className="flex items-center gap-0.5 text-[10px] text-text2">
+                  <Clock className="h-2.5 w-2.5" />{t.timeLogged}h
+                </span>
+              )}
+            </div>
           </div>
         ))}
       </div>
@@ -111,8 +127,15 @@ function KanbanColumn({ status, tasks }: { status: TaskStatus; tasks: Task[] }) 
   );
 }
 
-interface TimesheetDay {
+interface RawTimeLog {
+  id: string;
   date: string;
+  hours: number | string;
+  note?: string;
+  task: { id: string; title: string; projectId: string };
+}
+
+interface DayEntry {
   hours: number;
   tasks: Array<{ taskId: string; title: string; hours: number }>;
 }
@@ -130,8 +153,15 @@ function TimesheetView({ week }: { week: string }) {
 
   if (isLoading) return <div className="flex justify-center py-4"><Spinner /></div>;
 
-  const byDate: Record<string, TimesheetDay> = {};
-  (sheet?.days ?? []).forEach((d: TimesheetDay) => { byDate[d.date] = d; });
+  // Build day map from logs array (backend returns { logs, from, to })
+  const byDate: Record<string, DayEntry> = {};
+  (sheet?.logs ?? []).forEach((log: RawTimeLog) => {
+    const d = log.date.slice(0, 10);
+    if (!byDate[d]) byDate[d] = { hours: 0, tasks: [] };
+    const h = Number(log.hours);
+    byDate[d].hours += h;
+    byDate[d].tasks.push({ taskId: log.task.id, title: log.task.title, hours: h });
+  });
 
   const totalHours = days.reduce((s, d) => s + (byDate[d]?.hours ?? 0), 0);
 
@@ -141,22 +171,32 @@ function TimesheetView({ week }: { week: string }) {
         {days.map((d, i) => (
           <div key={d} className="text-center">
             <p className="text-[10px] text-text2 mb-1">{dayLabels[i]}</p>
-            <p className="text-xs text-text2 mb-2">{new Date(d).getDate()}</p>
+            <p className="text-xs text-text2 mb-2">{new Date(d + 'T12:00:00').getDate()}</p>
             <div className={`rounded-md p-2 text-center ${byDate[d]?.hours ? 'bg-accent/15 border border-accent/30' : 'bg-surface2'}`}>
-              <p className="text-sm font-semibold text-text">{byDate[d]?.hours ?? 0}h</p>
+              <p className="text-sm font-semibold text-text">{byDate[d]?.hours ? Number(byDate[d].hours.toFixed(1)) : 0}h</p>
             </div>
+            {byDate[d]?.tasks && byDate[d].tasks.length > 0 && (
+              <div className="mt-1 space-y-0.5">
+                {byDate[d].tasks.slice(0, 2).map(t => (
+                  <p key={t.taskId} className="text-[9px] text-text2 truncate" title={t.title}>{t.title}</p>
+                ))}
+                {byDate[d].tasks.length > 2 && (
+                  <p className="text-[9px] text-text2">+{byDate[d].tasks.length - 2} more</p>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>
       <div className="flex items-center justify-between text-xs text-text2 mt-3">
         <span>Total this week</span>
-        <span className="font-semibold text-text">{totalHours}h</span>
+        <span className="font-semibold text-text">{Number(totalHours.toFixed(1))}h</span>
       </div>
     </div>
   );
 }
 
-function UpcomingDeadlines({ tasks }: { tasks: Task[] }) {
+function UpcomingDeadlines({ tasks, projectTitleById }: { tasks: Task[]; projectTitleById: Record<string, string> }) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const in14 = new Date(today.getTime() + 14 * 86400000);
 
@@ -198,7 +238,7 @@ function UpcomingDeadlines({ tasks }: { tasks: Task[] }) {
             </span>
             <span className={`text-xs flex-1 truncate ${t.urgent ? 'text-red' : 'text-text'}`}>{t.title}</span>
             <Link href={`/projects/${t.projectId}`} className="text-[10px] text-accent hover:underline shrink-0 truncate max-w-[100px]">
-              {t.projectId.slice(0, 8)}…
+              {projectTitleById[t.projectId] ?? t.projectId.slice(0, 8) + '…'}
             </Link>
           </div>
         ))}
@@ -321,7 +361,11 @@ export default function MyWorkPage() {
   const [view, setView] = useState<'list' | 'kanban' | 'gantt' | 'timesheet'>('list');
   const [week, setWeek] = useState(getISOWeek(new Date()));
 
+  useEffect(() => { document.title = 'My Work | TeamTracker'; }, []);
+
   const { data: tasks = [], isLoading } = useMyTasks();
+  const { data: projects = [] } = useProjects();
+  const projectTitleById = Object.fromEntries(projects.map(p => [p.id, p.title]));
 
   const open = tasks.filter(t => t.status !== 'done');
   const today = new Date();
@@ -377,7 +421,7 @@ export default function MyWorkPage() {
             </div>
 
             {/* Upcoming Deadlines Widget */}
-            <UpcomingDeadlines tasks={tasks} />
+            <UpcomingDeadlines tasks={tasks} projectTitleById={projectTitleById} />
 
             {view === 'list' && (
               <Card className="overflow-hidden">
@@ -398,8 +442,8 @@ export default function MyWorkPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-c-border">
-                      {overdue.length > 0 && overdue.map(t => <TaskRow key={t.id} task={t} />)}
-                      {tasks.filter(t => !overdue.includes(t)).map(t => <TaskRow key={t.id} task={t} />)}
+                      {overdue.length > 0 && overdue.map(t => <TaskRow key={t.id} task={t} projectTitle={projectTitleById[t.projectId] ?? t.projectId.slice(0, 8) + '…'} />)}
+                      {tasks.filter(t => !overdue.includes(t)).map(t => <TaskRow key={t.id} task={t} projectTitle={projectTitleById[t.projectId] ?? t.projectId.slice(0, 8) + '…'} />)}
                     </tbody>
                   </table>
                 )}

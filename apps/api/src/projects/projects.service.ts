@@ -245,7 +245,7 @@ export class ProjectsService {
       where: { projectId, deletedAt: null },
       include: {
         assignee: { select: ASSIGNEE_SELECT },
-        _count: { select: { subtasks: true, timeLogs: true } },
+        _count: { select: { subtasks: { where: { deletedAt: null } }, timeLogs: true } },
       },
       orderBy: { position: 'asc' },
     });

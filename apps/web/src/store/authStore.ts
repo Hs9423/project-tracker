@@ -18,6 +18,7 @@ interface AuthState {
   user: AuthUser | null;
   accessToken: string | null;
   setAccessToken: (token: string) => void;
+  setUser: (user: AuthUser) => void;
   login: (user: AuthUser, accessToken: string) => void;
   logout: () => void;
 }
@@ -28,6 +29,7 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       accessToken: null,
       setAccessToken: (token) => set({ accessToken: token }),
+      setUser: (user) => set({ user }),
       login: (user, accessToken) => {
         set({ user, accessToken });
         connectSocket(accessToken);

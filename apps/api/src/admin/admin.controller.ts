@@ -78,4 +78,16 @@ export class AdminController {
   listAuditLogs(@Query() query: ListAuditLogsQueryDto) {
     return this.adminService.listAuditLogs(query);
   }
+
+  // GET /admin/settings
+  @Get('settings')
+  getSettings() {
+    return this.adminService.getSettings();
+  }
+
+  // PATCH /admin/settings
+  @Patch('settings')
+  updateSettings(@Body() body: Record<string, unknown>) {
+    return this.adminService.updateSettings(body as Parameters<typeof this.adminService.updateSettings>[0]);
+  }
 }

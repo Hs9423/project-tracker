@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuditLogs } from '@/hooks/useAdmin';
 import { Topbar } from '@/components/layout/Topbar';
 import { Card } from '@/components/ui/card';
@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Search } from 'lucide-react';
+import { UserAvatar } from '@/components/ui/avatar';
 
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -28,6 +29,7 @@ function actionColor(action: string): string {
 export default function AuditLogsPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
+  useEffect(() => { document.title = 'Audit Log | TeamTracker'; }, []);
 
   const { data, isLoading } = useAuditLogs({
     page: String(page),
@@ -60,6 +62,7 @@ export default function AuditLogsPage() {
               <thead>
                 <tr className="border-b border-c-border bg-surface2/50">
                   <th className="py-2.5 pl-4 text-left text-xs font-medium text-text2">Time</th>
+                  <th className="py-2.5 px-3 text-left text-xs font-medium text-text2">Actor</th>
                   <th className="py-2.5 px-3 text-left text-xs font-medium text-text2">Action</th>
                   <th className="py-2.5 px-3 text-left text-xs font-medium text-text2">Entity</th>
                   <th className="py-2.5 pr-4 text-left text-xs font-medium text-text2">Details</th>
@@ -70,6 +73,16 @@ export default function AuditLogsPage() {
                   <tr key={log.id} className="hover:bg-surface2/30 transition-colors">
                     <td className="py-2.5 pl-4 w-32 shrink-0">
                       <span className="text-xs text-text2 whitespace-nowrap">{relativeTime(log.createdAt)}</span>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      {log.actor ? (
+                        <div className="flex items-center gap-1.5">
+                          <UserAvatar name={log.actor.name} avatarUrl={log.actor.avatarUrl} className="h-5 w-5 text-[9px]" />
+                          <span className="text-xs text-text">{log.actor.name}</span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-text2/50 font-mono">{log.actorId?.slice(0, 8) ?? '—'}</span>
+                      )}
                     </td>
                     <td className="py-2.5 px-3">
                       <span className={`text-xs font-mono font-medium ${actionColor(log.action)}`}>
@@ -102,7 +115,7 @@ export default function AuditLogsPage() {
                 ))}
                 {logs.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="py-8 text-center text-sm text-text2">No audit logs found.</td>
+                    <td colSpan={5} className="py-8 text-center text-sm text-text2">No audit logs found.</td>
                   </tr>
                 )}
               </tbody>

@@ -1,5 +1,6 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useProjects, useCreateProject, useDeleteProject } from '@/hooks/useProjects';
 import { Topbar } from '@/components/layout/Topbar';
 import { Button } from '@/components/ui/button';
@@ -12,17 +13,27 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { UserAvatar } from '@/components/ui/avatar';
 import { projectStatusVariant, priorityDot } from '@/lib/statusHelpers';
-import { Plus, Search, Calendar, FolderOpen, Trash2, Check } from 'lucide-react';
+import { pushToast } from '@/components/ui/toast';
+import { Plus, Search, Calendar, FolderOpen, Trash2, Check, Tag, X } from 'lucide-react';
 import Link from 'next/link';
 import type { Project } from '@/types/api';
 import { useMyTeam } from '@/hooks/useUsers';
 import { useAuthStore } from '@/store/authStore';
 
-function ProjectListCard({ project, onDelete }: { project: Project; onDelete: (id: string) => void }) {
+function ProjectListCard({ project, onDelete, activeTag, onTagClick }: {
+  project: Project;
+  onDelete: (id: string) => void;
+  activeTag: string;
+  onTagClick: (tag: string) => void;
+}) {
   const tasks: Partial<Record<string, number>> = project.tasksByStatus ?? {};
   const total = Object.values(tasks).reduce<number>((s, n) => s + (n ?? 0), 0);
   const done = tasks['done'] ?? 0;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  const isProjectOverdue = project.dueDate &&
+    new Date(project.dueDate) < new Date() &&
+    project.status !== 'completed' &&
+    project.status !== 'cancelled';
 
   return (
     <Card className="p-4 hover:border-accent/50 transition-colors group relative">
@@ -42,31 +53,34 @@ function ProjectListCard({ project, onDelete }: { project: Project; onDelete: (i
               </Badge>
             </div>
           </div>
-            {project.description && (
-              <p className="text-xs text-text2 line-clamp-1 mb-2">{project.description}</p>
-            )}
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] text-text2">{pct}%</span>
-                  <span className="text-[10px] text-text2">{done}/{total} tasks</span>
-                </div>
-                <div className="h-1 rounded-full bg-surface2">
-                  <div className="h-1 rounded-full bg-accent transition-all" style={{ width: `${pct}%` }} />
-                </div>
+          {project.description && (
+            <p className="text-xs text-text2 line-clamp-1 mb-2">{project.description}</p>
+          )}
+          <div className="flex items-center gap-4">
+            <div className="flex-1">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] text-text2">{pct}%</span>
+                <span className="text-[10px] text-text2">{done}/{total} tasks</span>
               </div>
-              <div className="flex items-center gap-1 shrink-0">
-                {project.assignments?.slice(0, 3).map(a => (
-                  <UserAvatar key={a.id} name={a.assignee.name} avatarUrl={a.assignee.avatarUrl} className="h-5 w-5 text-[9px]" />
-                ))}
+              <div className="h-1 rounded-full bg-surface2">
+                <div className="h-1 rounded-full bg-accent transition-all" style={{ width: `${pct}%` }} />
               </div>
-              {project.dueDate && (
-                <span className="text-[10px] text-text2 flex items-center gap-1 shrink-0">
-                  <Calendar className="h-3 w-3" />
-                  {new Date(project.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                </span>
-              )}
             </div>
+            <div className="flex items-center gap-1 shrink-0">
+              {project.assignments?.slice(0, 3).map(a => (
+                <UserAvatar key={a.id} name={a.assignee.name} avatarUrl={a.assignee.avatarUrl} className="h-5 w-5 text-[9px]" />
+              ))}
+            </div>
+            {project.dueDate && (
+              <span className={`text-[10px] flex items-center gap-1 shrink-0 ${isProjectOverdue ? 'text-red' : 'text-text2'}`}>
+                <Calendar className="h-3 w-3" />
+                {new Date(project.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                {isProjectOverdue && (
+                  <span className="rounded bg-red/15 px-1 py-0.5 text-[9px] font-bold text-red">OVERDUE</span>
+                )}
+              </span>
+            )}
+          </div>
         </Link>
         <button
           onClick={e => { e.stopPropagation(); onDelete(project.id); }}
@@ -75,16 +89,43 @@ function ProjectListCard({ project, onDelete }: { project: Project; onDelete: (i
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>
+      {project.tags && project.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-2.5 pl-10">
+          {project.tags.map(t => (
+            <button
+              key={t}
+              onClick={e => { e.preventDefault(); e.stopPropagation(); onTagClick(t); }}
+              className={`rounded-full px-2 py-0.5 text-[10px] transition-colors ${
+                activeTag === t
+                  ? 'bg-accent text-white'
+                  : 'bg-surface2 text-text2 hover:bg-accent/20 hover:text-accent'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
     </Card>
   );
 }
 
 export default function ProjectsPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [search, setSearch] = useState('');
+
+  useEffect(() => { document.title = 'Projects | TeamTracker'; }, []);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [tagFilter, setTagFilter] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState<{ title: string; description: string; priority: string; status: string; startDate: string; dueDate: string; assignedTo: string[]; tagsInput: string }>({ title: '', description: '', priority: 'medium', status: 'planning', startDate: '', dueDate: '', assignedTo: [], tagsInput: '' });
+
+  useEffect(() => {
+    const tag = searchParams.get('tag') ?? '';
+    setTagFilter(tag);
+  }, [searchParams]);
 
   const params: Record<string, string> = {};
   if (statusFilter !== 'all') params.status = statusFilter;
@@ -95,9 +136,11 @@ export default function ProjectsPage() {
   const { data: team = [] } = useMyTeam();
   const { user } = useAuthStore();
 
-  const filtered = projects.filter(p =>
-    p.title.toLowerCase().includes(search.toLowerCase()),
-  );
+  const filtered = projects.filter(p => {
+    if (!p.title.toLowerCase().includes(search.toLowerCase())) return false;
+    if (tagFilter && !p.tags?.includes(tagFilter)) return false;
+    return true;
+  });
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -112,7 +155,7 @@ export default function ProjectsPage() {
       setShowCreate(false);
       setForm({ title: '', description: '', priority: 'medium', status: 'planning', startDate: '', dueDate: '', assignedTo: [], tagsInput: '' });
     } catch {
-      // error stays in createProject.error
+      pushToast({ message: 'Failed to create project. Please try again.' });
     }
   };
 
@@ -143,29 +186,51 @@ export default function ProjectsPage() {
         }
       />
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="relative flex-1 max-w-xs">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text2" />
-            <Input
-              className="pl-8 text-sm h-8"
-              placeholder="Search projects…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
+        <div className="flex flex-col gap-3 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="relative flex-1 max-w-xs">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text2" />
+              <Input
+                className="pl-8 text-sm h-8"
+                placeholder="Search projects…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-36 h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="planning">Planning</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="on_hold">On Hold</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-36 h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
-              <SelectItem value="planning">Planning</SelectItem>
-              <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="on_hold">On Hold</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
-              <SelectItem value="cancelled">Cancelled</SelectItem>
-            </SelectContent>
-          </Select>
+          {tagFilter && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-text2">Filtered by tag:</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-accent/15 px-2.5 py-0.5 text-xs font-medium text-accent">
+                <Tag className="h-3 w-3" />
+                {tagFilter}
+                <button
+                  onClick={() => {
+                    setTagFilter('');
+                    router.replace('/projects');
+                  }}
+                  className="ml-0.5 hover:text-red transition-colors"
+                  aria-label="Clear tag filter"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+              <span className="text-xs text-text2">({filtered.length} project{filtered.length !== 1 ? 's' : ''})</span>
+            </div>
+          )}
         </div>
 
         {isLoading ? (
@@ -177,7 +242,18 @@ export default function ProjectsPage() {
           </div>
         ) : (
           <div className="space-y-2">
-            {filtered.map(p => <ProjectListCard key={p.id} project={p} onDelete={setDeleteId} />)}
+            {filtered.map(p => (
+              <ProjectListCard
+                key={p.id}
+                project={p}
+                onDelete={setDeleteId}
+                activeTag={tagFilter}
+                onTagClick={tag => {
+                  setTagFilter(tag);
+                  router.replace(`/projects?tag=${encodeURIComponent(tag)}`);
+                }}
+              />
+            ))}
           </div>
         )}
       </div>

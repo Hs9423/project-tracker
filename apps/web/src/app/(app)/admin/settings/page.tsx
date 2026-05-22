@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { Topbar } from '@/components/layout/Topbar';
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
-import { Settings, Bell, Shield, Users } from 'lucide-react';
+import { Bell, Shield, Users } from 'lucide-react';
 
 interface SystemSettings {
   allowSelfRegistration: boolean;
@@ -19,6 +19,7 @@ interface SystemSettings {
 
 export default function AdminSettingsPage() {
   const qc = useQueryClient();
+  useEffect(() => { document.title = 'System Settings | TeamTracker'; }, []);
 
   const { data, isLoading } = useQuery<SystemSettings>({
     queryKey: ['admin', 'settings'],
@@ -157,18 +158,6 @@ export default function AdminSettingsPage() {
             </div>
           </Card>
 
-          <Card className="p-5 border-amber/30 bg-amber/5">
-            <div className="flex items-start gap-3">
-              <Settings className="h-4 w-4 text-amber shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-text">Backend persistence note</p>
-                <p className="text-xs text-text2 mt-1">
-                  This page requires a <code className="bg-surface2 px-1 rounded text-[11px]">GET/PATCH /admin/settings</code> endpoint on the API.
-                  Until that endpoint is implemented, changes will return a 404 — the UI is ready and waiting.
-                </p>
-              </div>
-            </div>
-          </Card>
         </div>
       </div>
     </div>

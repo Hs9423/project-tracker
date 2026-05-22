@@ -17,7 +17,12 @@ export function useCreateComment(entityType: EntityType, entityId: string) {
   return useMutation({
     mutationFn: (data: { body: Record<string, unknown>; parentId?: string }) =>
       api.post('/comments', { ...data, entityType, entityId }).then(r => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['comments', entityType, entityId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['comments', entityType, entityId] });
+      if (entityType === 'task') {
+        qc.invalidateQueries({ queryKey: ['task-activity', entityId] });
+      }
+    },
   });
 }
 

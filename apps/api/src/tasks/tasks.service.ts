@@ -74,7 +74,7 @@ export class TasksService {
       where: { assigneeId: userId, deletedAt: null },
       include: {
         assignee: { select: ASSIGNEE_SELECT },
-        _count: { select: { subtasks: true, dependsOn: true } },
+        _count: { select: { subtasks: { where: { deletedAt: null } }, dependsOn: true } },
       },
       orderBy: [{ status: 'asc' }, { dueDate: 'asc' }],
     });
@@ -87,7 +87,7 @@ export class TasksService {
     });
     const hoursMap = new Map(timeStats.map((s) => [s.taskId, Number(s._sum.hours ?? 0)]));
 
-    return tasks.map((t) => ({ ...t, timeLogged: hoursMap.get(t.id) ?? 0 }));
+    return tasks.map((t) => ({ ...t, subtaskCount: t._count.subtasks, timeLogged: hoursMap.get(t.id) ?? 0 }));
   }
 
   // ─── List tasks (tree) ────────────────────────────────────────────────────
@@ -97,7 +97,7 @@ export class TasksService {
       where: { projectId, deletedAt: null },
       include: {
         assignee: { select: ASSIGNEE_SELECT },
-        _count: { select: { subtasks: true, dependsOn: true } },
+        _count: { select: { subtasks: { where: { deletedAt: null } }, dependsOn: true } },
       },
       orderBy: { position: 'asc' },
     });
@@ -122,6 +122,7 @@ export class TasksService {
 
     const enriched = tasks.map((t) => ({
       ...t,
+      subtaskCount: t._count.subtasks,
       timeLogged: hoursMap.get(t.id) ?? 0,
       linksCount: linksMap.get(t.id) ?? 0,
     }));
@@ -385,7 +386,7 @@ export class TasksService {
       where: { projectId: { in: projectIds }, parentTaskId: null, deletedAt: null },
       include: {
         assignee: { select: ASSIGNEE_SELECT },
-        _count: { select: { subtasks: true } },
+        _count: { select: { subtasks: { where: { deletedAt: null } } } },
       },
       orderBy: [{ status: 'asc' }, { dueDate: 'asc' }],
       take: 300,

@@ -16,7 +16,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtPayload } from '@project-tracker/shared';
 import { CommentsService } from './comments.service';
-import { NotificationsGateway } from '../notifications/notifications.gateway';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { UpdateCommentDto } from './dto/update-comment.dto';
 
@@ -25,18 +25,17 @@ import { UpdateCommentDto } from './dto/update-comment.dto';
 export class CommentsController {
   constructor(
     private readonly commentsService: CommentsService,
-    @Optional() private readonly gateway: NotificationsGateway,
+    @Optional() private readonly notifications: NotificationsService,
   ) {}
 
   // POST /comments
   @Post()
   async create(@Body() dto: CreateCommentDto, @CurrentUser() user: JwtPayload) {
     const result = await this.commentsService.create(dto, user.sub);
-    this.gateway?.emitToUser(user.sub, 'comment:new', {
-      entityType: dto.entityType,
-      entityId: dto.entityId,
-      comment: result.comment,
-    });
+    // Fan-out comment:new to all project members who have access to this entity
+    if (this.notifications) {
+      await this.notifications.emitCommentNew(dto.entityType, dto.entityId, result.comment);
+    }
     return result;
   }
 
