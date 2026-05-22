@@ -26,11 +26,15 @@ export class NotificationsService {
 
     this.gateway.emitToUser(recipientId, 'notification', notification);
 
-    await this.emailQueue.add(
-      'send',
-      { notificationId: notification.id, recipientId, type, message, entityType, entityId },
-      { attempts: 3, backoff: { type: 'exponential', delay: 5000 }, removeOnComplete: true },
-    );
+    try {
+      await this.emailQueue.add(
+        'send',
+        { notificationId: notification.id, recipientId, type, message, entityType, entityId },
+        { attempts: 3, backoff: { type: 'exponential', delay: 5000 }, removeOnComplete: true },
+      );
+    } catch {
+      // Redis unavailable — notification created but email queuing skipped
+    }
 
     return notification;
   }

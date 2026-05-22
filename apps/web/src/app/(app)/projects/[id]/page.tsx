@@ -723,8 +723,9 @@ function TasksTab({ projectId }: { projectId: string }) {
       }
       setShowAdd(null);
       setForm({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', estimatedHours: '', assigneeId: '' });
-    } catch {
-      pushToast({ message: 'Failed to create task. Please try again.' });
+    } catch (err: unknown) {
+      const apiMsg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      pushToast({ message: apiMsg ?? 'Failed to create task. Please try again.' });
     }
   };
 
@@ -742,6 +743,7 @@ function TasksTab({ projectId }: { projectId: string }) {
           <thead>
             <tr className="border-b border-c-border bg-surface2/50">
               <th className="w-8 py-2" />
+              <th className="w-5 py-2" />
               <th className="py-2 pl-2 text-left text-xs font-medium text-text2">Task</th>
               <th className="py-2 px-2 text-left text-xs font-medium text-text2 w-32">Status</th>
               <th className="py-2 px-2 text-left text-xs font-medium text-text2 w-20">Priority</th>
